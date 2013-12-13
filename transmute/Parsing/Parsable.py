@@ -11,6 +11,7 @@ class Parsable(metaclass = ABCMeta):
    # @brief Initializes the Parsable.
    def __init__(self):
       self.children = []
+      self.parent   = None
    ##
    # @brief Gets the XML tag of the Parsable.
    # @return The XML tag of the Parsable.
@@ -30,12 +31,14 @@ class Parsable(metaclass = ABCMeta):
    # @param evt_stream [in,out] The DOMEventStream from which the node was pulled.
    # @param node [in,out] The node associated with the DOMEvent that spawned this call.
    # @param parser [in] The Parser instance responsible for generating evt_stream.
-   # @return boolean True when the Parsable has performed sub-parsing, else False.
-   # @details Parsables that do not perform sub-parsing should ignore evt_stream and node.
+   # @return boolean True when the Parsable has consumed its own END_ELEMENT event (performed sub-parsing), else False.
+   # @details Parsables that do not perform sub-parsing must ignore evt_stream and node.
    #          Parsables that do perform sub-parsing must consume their own END_ELEMENT event.
    #
    @abstractmethod
    def Start(self, attrs, evt_stream, node, parser):
+      self.children = []
+      self.parent   = None
       return False
    ##
    # @name End
@@ -56,6 +59,7 @@ class Parsable(metaclass = ABCMeta):
    # @name Child
    # @brief The method called when the END_ELEMENT event is encountered for a child node of this Parsable.
    # @param child [in] The Parsable that has been consumed.
+   # @details Classes inheriting this method must call super().Child() at the beginning of their Child() implementation.
    #
    @abstractmethod
    def Child(self, child):
@@ -64,6 +68,7 @@ class Parsable(metaclass = ABCMeta):
    # @name Validate
    # @brief The method called when all parsing is complete.
    # @param parent [in] The parent Parsable of this Parsable, or None
+   # @details Classes inheriting this method must call super().Validate() before the end of their Validate() implementation.
    #
    @abstractmethod
    def Validate(self, parent):

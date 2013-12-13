@@ -7,10 +7,6 @@ from   transmute.Dispatch import Dispatcher
 from   transmute.Parsing  import Parser
 
 ##
-# @brief The application version number.
-version = (0, 0, '1a')
-
-##
 # @brief Configures the application's verbosity.
 # @param verbose [in] True if the application should be verbose.
 # @param quiet [in] True if the application should be quiet.
@@ -30,14 +26,14 @@ def SetVerbosity(quiet, verbose, extra_verbose):
 def main():
    #assign a logger for this routine
    log = logging.getLogger("main")
-   args_parser = argparse.ArgumentParser(description="Transform a protocol specification in XML to another representation.")
+   args_parser = argparse.ArgumentParser(description="Transform a protocol specification in XML to another representation.", add_help=False)
    #these are the application-level command line arguments
    args_parser.add_argument('-p',  '--protocol', default='proto.xml',                      type=argparse.FileType('r'), dest='protofile', help="The protocol specification XML file to use. (default=\"proto.xml\")")
    vrbos_group = args_parser.add_mutually_exclusive_group()
    vrbos_group.add_argument('-q',  '--quiet',    default=False,       action='store_true',                                                help="Suppress output during processing.")
    vrbos_group.add_argument('-V',  '--verbose',  default=False,       action='store_true',                                                help="Show detailed information during processing.")
    vrbos_group.add_argument('-VV', '--extra-verbose', default=False,  action='store_true',                                                help="Show extra detailed information during processing.")
-   args_parser.add_argument('-v',  '--version',                       action='version',    version='%(prog)s {}'.format('.'.join(str(v) for v in version)))
+   args_parser.add_argument('-v',  '--version',                       action='version',    version='%(prog)s {}'.format(transmute.version_string))
    ns,argv = args_parser.parse_known_args()
    #configure the output mode
    SetVerbosity(ns.quiet, ns.verbose, ns.extra_verbose)
@@ -48,6 +44,11 @@ def main():
    log.debug("Initializing dispatcher for {} folder".format(path.join('transmute', 'plugins')))
    dispatcher = Dispatcher.Dispatcher('plugins')
    dispatcher.register_all(args_parser, xml_parser)
+   
+   #this here to catch -h/--help arguments (and any others that must only be processed after all plugins are loaded)
+   final_args_parser = argparse.ArgumentParser(parents=[args_parser],formatter_class=argparse.RawDescriptionHelpFormatter)
+   final_args_parser.parse_args(argv)
+   
    #system initialized, begin parsing
    log.info("Starting parser")
    try:
