@@ -9,6 +9,4 @@ if sys.version_info[0:3] < minver:
 # @brief The application version number.
 version = (0, 0, '1a')
 
-##
-# @brief The dot-separated version number in string format.
 version_string = '.'.join(str(v) for v in version)

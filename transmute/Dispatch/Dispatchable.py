@@ -13,3 +13,9 @@ class Dispatchable(metaclass = ABCMeta):
    
    def getTag(self):
       return type(self).tag()
+   
+   def __iter__(self):
+      if hasattr(self, 'children'):
+         for c in self.children:
+            yield c
+      raise StopIteration("No children")

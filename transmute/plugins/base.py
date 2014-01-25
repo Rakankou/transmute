@@ -9,7 +9,7 @@ from   ..Dispatch.Dispatchable import Dispatchable
 __all__  = ["register", "Dispatch", "Protocol",  "Description",
             "Brief",    "Detail",   "Values",    "Value",
             "Message",  "Field",    "Position",  "Bits",
-            "Chunks",   "Weight",   "Constants"
+            "Chunks",   "Weight",   "Group",     "Constants"
            ]
 
 _logger  = logging.getLogger('transmute.base')
@@ -48,7 +48,7 @@ class Detail(Parsable, Dispatchable):
    def Validate(self, parent):
       if self.detail is None:
          raise ValidationError('<{}> missing data'.format(self.getTag()))
-      super().Validate(self)
+      super().Validate(parent)
    
    @property
    def detail(self):
@@ -85,7 +85,7 @@ class Brief(Parsable, Dispatchable):
    def Validate(self, parent):
       if self.brief is None:
          raise ValidationError('<{}> missing data'.format(self.getTag()))
-      super().Validate(self)
+      super().Validate(parent)
    
    @property
    def brief(self):
@@ -135,7 +135,7 @@ class Description(Parsable, Dispatchable):
          raise ValidationError("<{}> missing <{}>".format(self.getTag(), Brief.tag()))
       if self.detail is None:
          self.detail = self.brief
-      super().Validate(self)
+      super().Validate(parent)
    
    @property
    def name(self):
@@ -201,7 +201,7 @@ class Value(Parsable, Dispatchable):
          raise ValidationError("<{}> missing name attribute".format(self.getTag()))
       if self._ival is None:
          raise ValidationError("<{}> missing int attribute".format(self.getTag()))
-      super().Validate(self)
+      super().Validate(parent)
    
    @property
    def name(self):
@@ -269,7 +269,7 @@ class Values(Parsable, Dispatchable):
             current = current.parent
          if not valid:
             raise ValidationError("No definition of <{} name=\"{}\">'".format(self.getTag(), self.name))
-      super().Validate(self)
+      super().Validate(parent)
    
    @property
    def name(self):
@@ -285,6 +285,10 @@ class Values(Parsable, Dispatchable):
    
    def __len__(self):
       return len(self._values)
+   
+   def __iter__(self):
+      for v in self._values:
+         yield v
    
 class Bits(Parsable, Dispatchable):
    def __init__(self):
@@ -336,11 +340,11 @@ class Bits(Parsable, Dispatchable):
       if self._end is not None:
          if self._end >= parent.chunksize:
             raise ValidationError("end attribute too large ({}) for chunksize ({})".format(self._end, parent.chunksize))
-         if self._end > self.start:
+         if self._end < self.start:
             raise ValidationError("<{}> has reversed start and end attributes.".format(self.getTag()))
       if self._mask is None:
          self._mask = self.buildMask(parent.chunksize, parent.bit0)
-      super().Validate(self)
+      super().Validate(parent)
    
    def buildMask(self, chunksize, bit0):
       if self._end is None:
@@ -396,7 +400,7 @@ class Chunks(Parsable, Dispatchable):
       super().End()
    
    def Validate(self, parent):
-      super().Validate(self)
+      super().Validate(parent)
 
 class Position(Parsable, Dispatchable):
    def __init__(self):
@@ -506,7 +510,7 @@ class Weight(Parsable, Dispatchable):
       super().End()
    
    def Validate(self, parent):
-      super().Validate(self)
+      super().Validate(parent)
    
    @property
    def lsb(self):
@@ -601,6 +605,7 @@ class Field(Parsable, Dispatchable):
       self.position      = None
       self._endian       = None
       self.ftype_handler = Field.FTypes['undecoded']('', {})
+      self.ftype         = 'undecoded'
       
    def tag():
       return ':'.join([_prefix, 'field']).lstrip(':')
@@ -612,6 +617,7 @@ class Field(Parsable, Dispatchable):
       self._endian       = None
       try:
          self.ftype_handler = Field.FTypes[attrs['type']](attrs['type'], self)
+         self.ftype = attrs['type']
       except KeyError as ke:
          raise ParseError("Unknown field type '{}'".format(attrs['type']))
       else:
@@ -653,7 +659,7 @@ class Field(Parsable, Dispatchable):
          self.description.Validate(self)
       else:
          raise ValidationError("{} missing <{}>.".format(self.getTag(), Description.tag()))
-      super().Validate(self)
+      super().Validate(parent)
       self.ftype_handler.Validate(parent)
    
    @property
@@ -703,7 +709,11 @@ class Group(Parsable, Dispatchable):
       
       for element in parser.parseString(parser.getSubXml(evt_stream, node)):
          self.Child(element)
-      
+         #@TODO TODO TODO TODO TODO
+         #@TODO TODO TODO TODO TODO
+         #  For some reason, Group contains itself!
+         #@TODO TODO TODO TODO TODO
+         #@TODO TODO TODO TODO TODO
       return True
    
    def End(self):
@@ -723,7 +733,7 @@ class Group(Parsable, Dispatchable):
          self.description = child
    
    def Validate(self, parent):
-      super().Validate(self)
+      super().Validate(parent)
       if self.description is not None:
          self.description.Validate(self)
       else:
@@ -830,7 +840,7 @@ class Message(Parsable, Dispatchable):
             self._endian = parent.endian
          else:
             raise ValidationError("<{}> missing endian value".format(self.getTag()))
-      super().Validate(self)
+      super().Validate(parent)
       if self.description is not None:
          self.description.Validate(self)
       else:
@@ -961,7 +971,7 @@ class Protocol(Parsable, Dispatchable):
          self.description = child
    
    def Validate(self, parent):
-      super().Validate(self)
+      super().Validate(parent)
       if self.description is not None:
          self.description.Validate(self)
       else:
@@ -1004,7 +1014,8 @@ def register(args_parser, xml_parser):
                           Position,
                              Bits,
                              Chunks,
-                          Weight
+                          Weight,
+                    Group
                    ]:
       xml_parser.registerParsable(parsable)
 
