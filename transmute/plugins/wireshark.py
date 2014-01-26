@@ -100,12 +100,12 @@ _ws_text = { 'header_comment'    : "/* \n * File: {{filename}}\n * Description: 
            }
 
 _ws_ftypes = {'undecoded'         : 'NONE',
-              'bool'              : 'BOOL',
-              'boolean'           : 'BOOL',
+              'bool'              : 'BOOLEAN',
+              'boolean'           : 'BOOLEAN',
               'enum'              : 'UINT',
               'enumeration'       : 'UINT',
-              'weighted'          : 'INT',
-              'unsigned weighted' : 'UINT',
+              'weighted'          : 'DOUBLE',
+              'unsigned weighted' : 'DOUBLE',
               'float'             : 'FLOAT',
               'double'            : 'DOUBLE',
               'int'               : 'INT',
@@ -114,18 +114,51 @@ _ws_ftypes = {'undecoded'         : 'NONE',
               'unsigned integer'  : 'UINT'
              }
 
-def ws_header_field(f):
+##
+# @brief Translates an abbreviation string to a name string.
+# @param abbreviation [in] The abbreviation string.
+# @return The name string suitable for use as or within a C identifier.
+def abbr2name(abbreviation):
+   return abbreviation.replace('.','_').replace('-','_')
+
+def ws_header_field(f, namespace):
    attrs = {'indent'      : _ws_text['indent'],
             'name'        : abbr2name(f.description.abbreviation),
             'brief'       : f.description.brief,
             'abbreviation': f.description.abbreviation,
-            'ftype'       : '', #@todo
-            'btype'       : '', #@todo
-            'VALS'        : '', #@todo
-            'mask'        : '', #@todo
+            'ftype'       : _ws_ftypes[f.ftype if hasattr(f, 'ftype') else 'undecoded'],
+            'btype'       : 'NONE',
+            'VALS'        : 'NULL',
+            'mask'        : '0x0',
             'detail'      : f.description.detail
            }
-   pass #@todo
+   
+   if 'INT' in attrs['ftype']:
+      bitlength = f.bitlength()
+      if   1  <= bitlength <= 8:
+         attrs['ftype'] = ''.join((attrs['ftype'], '8'))
+      elif       bitlength <= 16:
+         attrs['ftype'] = ''.join((attrs['ftype'], '16'))
+      elif       bitlength <= 24:
+         attrs['ftype'] = ''.join((attrs['ftype'], '24'))
+      elif       bitlength <= 32:
+         attrs['ftype'] = ''.join((attrs['ftype'], '32'))
+      else:
+         raise DispatchError("<{}> with unsupported bit length {}".format(f.getTag(), bitlength))
+      if   bitlength % 4 == 0:
+         attrs['btype'] = 'HEX'
+      elif bitlength % 3 == 0:
+         attrs['btype'] = 'OCT'
+      else:
+         attrs['byte'] = 'DEC'
+   
+   if f.ftype[:4] == 'enum':
+      attrs['VALS'] = 'VALS({vstr}_{vname})'.format(**{'vstr' : 'tfs' if is_tfs(f.values) else 'vs',
+                                                       'vname': f.values.name if f.values.name else abbr2name(f.description.abbreviation)
+                                                      })
+   if f.bitstart or f.bitlength % f.chunksize:
+      mask = hex(f.bitmask)
+   
    return '{indent}{s}'.format(**{
                'indent':_ws_text['indent'],
                's':_ws_text['header_field'].format(**attrs).replace(
@@ -144,9 +177,6 @@ def tfs_get(v, val):
 def var_decl(v):
    return ''.join((v[:v.index('=')].rstrip(),';'))
 
-def abbr2name(abbreviation):
-   return abbreviation.replace('.','_').replace('-','_')
-
 def dispatch_node(dispatchable_obj, namespace):
    if hasattr(dispatchable_obj, 'values') and dispatchable_obj.getTag() != Values.tag():
       for vs in dispatchable_obj.values.values():
@@ -157,8 +187,15 @@ def dispatch_node(dispatchable_obj, namespace):
             namespace['true_false_strings'][vs.name] = "{indent}{tfs}".format(**{'indent':_ws_text['indent'], 'tfs':_ws_text['true_false_string'].format(name=vs.name, vtrue=tfg_get(vs,1),vfalse=tfs_get(vs,0))})
          else:
             namespace['value_strings'][vs.name] = "{indent}{vs}".format(**{'indent':_ws_text['indent'], 'vs':_ws_text['value_string'].format(name=vs.name, values=',\n'.join([_ws_text['vs_value'].format(name=v) for v in vs.values.keys()]))})
-   pass #@todo was there anything else to do here?
-   #@todo yes: fields!
+   if   dispatchable_obj.getTag() == Field.tag():
+      if dispatchable_obj.abbreviation in namespace['fields']:
+         raise DispatchError("More than one field with name {name}".format(name = dispatchable_obj.abbreviation))
+      namespace['fields'][dispatchable_obj.abbreviation] = dispatchable_obj
+   elif dispatchable_obj.getTag() == Message.tag():
+      if dispatchable_obj.abbreviation in namespace['messages']:
+         raise DispatchError("More than one message with name {name}".format(name = dispatchable_obj.abbreviation))
+      namespace['messages'][dispatchable_obj.abbreviation] = dispatchable_obj
+   pass #@todo anything else to do here?
 
 def dispatch(dispatchable_obj):
    if args_ns.wireshark and dispatchable_obj.getTag() == Protocol.tag():
@@ -212,13 +249,14 @@ def dispatch(dispatchable_obj):
             #dissect_...
             cfile.write('{decl}\n{{\n'.format(**{'decl':dissect_fxn_decl.format(dispatchable_obj.abbreviation)}))
             # @todo
+            #     weighted use proto_tree_add_double_format_value
             cfile.write('}}\n')
             #proto_register...
             cfile.write('{decl}\n{{\n'.format(**{'decl':register_fxn_decl.format(dispatchable_obj.abbreviation)}))
             if len(namespace['fields']):
                cfile.write('{indent}static hf_register_info hf[] = {{\n'.format(**{'indent':_ws_text['indent']}))
                for f in namespace['fields'].values():
-                  cfile.write(ws_header_field(f))
+                  cfile.write(ws_header_field(f, namespace))
                #@todo maybe possibly also ett_ entities get hfs as well... can't remember offhand
                cfile.write('{indent}}};\n'.format(**{'indent':_ws_text['indent']})
             cfile.write('{indent}static gint *ett[] = {{\n'.format(**{'indent':_ws_text['indent']}))

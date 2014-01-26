@@ -382,7 +382,7 @@ class Chunks(Parsable, Dispatchable):
    def Start(self, attrs, evt_stream, node, parser):
       super().Start(attrs, evt_stream, node, parser)
       try:
-         self.start = int(attrs['length'])
+         self.length = int(attrs['length'])
       except KeyError:
          raise ParseError("Missing length attribute for <{}>".format(self.getTag()))
       except ValueError as ve:
@@ -401,6 +401,9 @@ class Chunks(Parsable, Dispatchable):
    
    def Validate(self, parent):
       super().Validate(parent)
+   
+   def __len__(self):
+      return self.length
 
 class Position(Parsable, Dispatchable):
    def __init__(self):
@@ -468,6 +471,18 @@ class Position(Parsable, Dispatchable):
    def bit0(self):
       if self.parent is not None:
          return self.parent.bit0
+   
+   @property
+   def bitlength(self):
+      return len(self._chunks) * self.chunksize if self._chunks is not None else len(self._bits)
+   
+   @property
+   def bitstart(self):
+      return self._bits.start if self._bits is not None else 0
+   
+   @property
+   def bitmask(self):
+      int(('F' * (self.chunksize / 4)) * len(self._chunks), 16) if self._chunks is not None else self._bits.buildMask()
 
 class Weight(Parsable, Dispatchable):
    def __init__(self):
@@ -604,6 +619,7 @@ class Field(Parsable, Dispatchable):
       self.description   = None
       self.position      = None
       self._endian       = None
+      self._values       = None
       self.ftype_handler = Field.FTypes['undecoded']('', {})
       self.ftype         = 'undecoded'
       
@@ -615,6 +631,7 @@ class Field(Parsable, Dispatchable):
       self.description   = None
       self.position      = None
       self._endian       = None
+      self._values       = None
       try:
          self.ftype_handler = Field.FTypes[attrs['type']](attrs['type'], self)
          self.ftype = attrs['type']
@@ -692,6 +709,11 @@ class Field(Parsable, Dispatchable):
    def bit0(self):
       if self.parent is not None:
          return self.parent.bit0
+   
+   @property
+   def values(self):
+      if self._values is not None:
+         return self._values
 
 class Group(Parsable, Dispatchable):
    def __init__(self):
@@ -706,15 +728,8 @@ class Group(Parsable, Dispatchable):
    def Start(self, attrs, evt_stream, node, parser):
       super().Start(attrs, evt_stream, node, parser)
       self._fields = dict()
-      
-      for element in parser.parseString(parser.getSubXml(evt_stream, node)):
-         self.Child(element)
-         #@TODO TODO TODO TODO TODO
-         #@TODO TODO TODO TODO TODO
-         #  For some reason, Group contains itself!
-         #@TODO TODO TODO TODO TODO
-         #@TODO TODO TODO TODO TODO
-      return True
+      self._groups = dict()
+      return False
    
    def End(self):
       pass
@@ -726,9 +741,20 @@ class Group(Parsable, Dispatchable):
       super().Child(child)
       if   child.getTag() == Field.tag():
          if child.abbreviation not in self._fields.keys():
-            self._fields[child.abbreviation] = child
+            if child.abbreviation not in self._groups.keys():
+               self._fields[child.abbreviation] = child
+            else:
+               raise ParseError("<{}> with name conflict: field and group named {}".format(self.getTag(), child.abbreviation))
          else:
             raise ParseError("<{}> with duplicate fields {}".format(self.getTag(), child.abbreviation))
+      elif child.getTag() == Group.tag():
+         if child.abbreviation not in self._groups.keys():
+            if child.abbreviation not in self._fields.keys():
+               self._groups[child.abbreviation] = child
+            else:
+               raise ParseError("<{}> with name conflict: field and group named {}".format(self.getTag(), child.abbreviation))
+         else:
+            raise ParseError("<{}> with duplicate groups {}".format(self.getTag(), child.abbreviation))
       elif child.getTag() == Description.tag():
          self.description = child
    
