@@ -9,7 +9,8 @@ from   ..Dispatch.Dispatchable import Dispatchable
 __all__  = ["register", "Dispatch", "Protocol",  "Description",
             "Brief",    "Detail",   "Values",    "Value",
             "Message",  "Field",    "Position",  "Bits",
-            "Chunks",   "Weight",   "Group",     "Constants"
+            "Chunks",   "Weight",   "Group",     "Constants",
+            "Header",   "Trailer"
            ]
 
 _logger  = logging.getLogger('transmute.base')
@@ -923,6 +924,22 @@ class Message(Parsable, Dispatchable):
       if self.parent is not None:
          return self.parent.bit0
 
+class Header(Message):
+   def __init__(self):
+      super().__init__()
+      self.log          = logging.getLogger('transmute.base.Header')
+      
+   def tag():
+      return ':'.join([_prefix, 'header']).lstrip(':')
+
+class Trailer(Message):
+   def __init__(self):
+      super().__init__()
+      self.log          = logging.getLogger('transmute.base.Trailer')
+      
+   def tag():
+      return ':'.join([_prefix, 'trailer']).lstrip(':')
+
 class Protocol(Parsable, Dispatchable):
    def __init__(self):
       super().__init__()
@@ -933,6 +950,8 @@ class Protocol(Parsable, Dispatchable):
       self._endian     = None
       self.chunksize   = None
       self.bit0        = None
+      self.header      = None
+      self.trailer     = None
    
    def tag():
       return ':'.join([_prefix, 'protocol']).lstrip(':')
@@ -969,6 +988,8 @@ class Protocol(Parsable, Dispatchable):
       self.messages    = dict()
       self._values     = dict()
       self.description = None
+      self.header      = None
+      self.trailer     = None
             
       for element in parser.parseString(parser.getSubXml(evt_stream, node)):
          self.Child(element)
@@ -995,6 +1016,10 @@ class Protocol(Parsable, Dispatchable):
             raise ParseError("Duplicate <{}> at the same scope under <{}>".format(child.getTag(), self.getTag()))
       elif child.getTag() == Description.tag():
          self.description = child
+      elif child.getTag() == Header.tag():
+         self.header = child
+      elif child.getTag() == Trailer.tag():
+         self.trailer = child
    
    def Validate(self, parent):
       super().Validate(parent)
@@ -1027,6 +1052,31 @@ class Protocol(Parsable, Dispatchable):
    @property
    def endian(self):
       return self._endian
+   
+   def getField(self, abbreviation):
+      def search(chunk):
+         for m in chunk:
+            for field in m.fields:
+               if field.abbreviation == abbreviation:
+                  return field
+         def searchgroup(group):
+            for field in group.fields:
+               if field.abbreviation == abbreviation:
+                  return field
+            for f in map(searchgroup, group.groups):
+               if f is not None:
+                  return f
+            return None
+      f = search(self.messages)
+      if f is None and self.header is not None:
+         f = search(self.header)
+      if f is None and self.trailer is not None:
+         f = search(self.trailer)
+      return f
+   
+   def hasField(self, abbreviation):
+      return self.getField(abbreviation) is not None
+            
 
 def register(args_parser, xml_parser):
    for parsable in [Protocol,
@@ -1035,7 +1085,7 @@ def register(args_parser, xml_parser):
                        Detail,
                     Values,
                        Value,
-                    Message,
+                    Message, Header, Trailer,
                        Field,
                           Position,
                              Bits,
