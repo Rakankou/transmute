@@ -28,7 +28,7 @@ def main():
    log = logging.getLogger("main")
    args_parser = argparse.ArgumentParser(description="Transform a protocol specification in XML to another representation.", add_help=False)
    #these are the application-level command line arguments
-   args_parser.add_argument('-p',  '--protocol', default='proto.xml',                      type=argparse.FileType('r'), dest='protofile', help="The protocol specification XML file to use. (default=\"proto.xml\")")
+   args_parser.add_argument('-p',  '--protocol', default='proto.xml',                                                   dest='protofile', help="The protocol specification XML file to use. (default=\"proto.xml\")")
    vrbos_group = args_parser.add_mutually_exclusive_group()
    vrbos_group.add_argument('-q',  '--quiet',    default=False,       action='store_true',                                                help="Suppress output during processing.")
    vrbos_group.add_argument('-V',  '--verbose',  default=False,       action='store_true',                                                help="Show detailed information during processing.")
@@ -52,14 +52,17 @@ def main():
    #system initialized, begin parsing
    log.info("Starting parser")
    try:
-      for element in xml_parser.parse(ns.protofile):
-         #the parser will emit protocol Dispatchables as they are completed
-         log.info("Parsing completed for {} {}".format(element.getTag(), element.description.name))
-         log.info("Starting validation...")
-         element.Validate(None)
-         dispatcher.push(element)
+      with open(ns.protofile, 'r') as protofile:
+         for element in xml_parser.parse(protofile):
+            #the parser will emit protocol Dispatchables as they are completed
+            log.info("Parsing completed for {} {}".format(element.getTag(), element.description.name))
+            log.info("Starting validation...")
+            element.Validate(None)
+            dispatcher.push(element)
    except Parser.ParseError as pe:
       log.warning("Invalid XML Input: {}".format(pe))
+   except IOError as ioe:
+      log.error("Unable to open file '{}'".format(ns.protofile))
    log.info("Parser stopped.")
 
 if __name__ == '__main__':

@@ -6,10 +6,10 @@ from   ..Parsing.Parsable      import Parsable
 from   ..Parsing.Parser        import Parser, ParseError, ValidationError
 from   ..Dispatch.Dispatchable import Dispatchable
 
-__all__  = ["register", "Dispatch", "Protocol",  "Description",
+__all__  = ["register", "dispatch", "Protocol",  "Description",
             "Brief",    "Detail",   "Values",    "Value",
             "Message",  "Field",    "Position",  "Bits",
-            "Chunks",   "Weight",   "Group",     "Constants",
+            "Chunks",   "Weight",                "Constants",
             "Header",   "Trailer"
            ]
 
@@ -263,7 +263,9 @@ class Values(Parsable, Dispatchable):
          #skip over the immediate parent (which obviously contains this node)
          while current is not None and not valid:
             try:
-               if self.name in parent.values:
+               self.log.debug("Searching ancestor <{}> values namespace: [{}]".format(current.getTag(), ', '.join(map(str, (v for v in current.values)))))
+               #find teh defining node: i.e. the first node with defined values inside
+               if self.name in current.values and len(current.values[self.name]) > 0:
                   valid = True
             except AttributeError:
                pass #current does not hold values types, move up
@@ -716,99 +718,6 @@ class Field(Parsable, Dispatchable):
       if self._values is not None:
          return self._values
 
-class Group(Parsable, Dispatchable):
-   def __init__(self):
-      super().__init__()
-      self.log = logging.getLogger('transmute.base.Group')
-      self._fields = dict()
-      self._groups = dict()
-   
-   def tag():
-      return ':'.join([_prefix, 'group']).lstrip(':')
-   
-   def Start(self, attrs, evt_stream, node, parser):
-      super().Start(attrs, evt_stream, node, parser)
-      self._fields = dict()
-      self._groups = dict()
-      return False
-   
-   def End(self):
-      pass
-   
-   def Cdata(self, data):
-      pass
-   
-   def Child(self, child):
-      super().Child(child)
-      if   child.getTag() == Field.tag():
-         if child.abbreviation not in self._fields.keys():
-            if child.abbreviation not in self._groups.keys():
-               self._fields[child.abbreviation] = child
-            else:
-               raise ParseError("<{}> with name conflict: field and group named {}".format(self.getTag(), child.abbreviation))
-         else:
-            raise ParseError("<{}> with duplicate fields {}".format(self.getTag(), child.abbreviation))
-      elif child.getTag() == Group.tag():
-         if child.abbreviation not in self._groups.keys():
-            if child.abbreviation not in self._fields.keys():
-               self._groups[child.abbreviation] = child
-            else:
-               raise ParseError("<{}> with name conflict: field and group named {}".format(self.getTag(), child.abbreviation))
-         else:
-            raise ParseError("<{}> with duplicate groups {}".format(self.getTag(), child.abbreviation))
-      elif child.getTag() == Description.tag():
-         self.description = child
-   
-   def Validate(self, parent):
-      super().Validate(parent)
-      if self.description is not None:
-         self.description.Validate(self)
-      else:
-         raise ValidationError("{} missing <{}>.".format(self.getTag(), Description.tag()))
-      if any(map(lambda combo: self._fields[combo[0]].abbreviation == self._fields[combo[r]].abbreviation, itertools.combinations(self._fields.keys(), 2))):
-         raise ValidationError("<{}> '{}' has repeated {} abbreviations".format(self.getTag(), self.description.name, Field.tag()))      
-      if any(map(lambda combo: self._groups[combo[0]].abbreviation == self._groups[combo[r]].abbreviation, itertools.combinations(self._groups.keys(), 2))):
-         raise ValidationError("<{}> '{}' has repeated {} abbreviations".format(self.getTag(), self.description.name, Group.tag()))
-      if any(map(lambda k: k in self._groups.keys(), self._fields.keys())):
-         raise ValidationError("<{}> '{}' has conflicting {} and {} abbreviations".format(self.getTag(), self.description.name, Group.tag(), Field.tag()))
-   
-   @property
-   def name(self):
-      try:
-         return self.description.name
-      except AttributeError:
-         return ''
-   
-   @property
-   def abbreviation(self):
-      try:
-         return self.description.abbreviation
-      except AttributeError:
-         return ''
-   
-   @property
-   def fields(self):
-      return {k:self._fields[k] for k in self._fields.keys()}
-   
-   @property
-   def groups(self):
-      return {k:self._groups[k] for k in self._groups.keys()}
-   
-   @property
-   def chunksize(self):
-      if self.parent is not None:
-         return self.parent.chunksize
-   
-   @property
-   def endian(self):
-      if self.parent is not None:
-         return self.parent.endian
-   
-   @property
-   def bit0(self):
-      if self.parent is not None:
-         return self.parent.bit0
-
 class Message(Parsable, Dispatchable):
    def __init__(self):
       super().__init__()
@@ -853,11 +762,6 @@ class Message(Parsable, Dispatchable):
             self._fields[child.abbreviation] = child
          else:
             raise ParseError("<{}> with duplicate fields {}".format(self.getTag(), child.abbreviation))
-      elif child.getTag() == Group.tag():
-         if child.abbreviation not in self._groups.keys():
-            self._groups[child.abbreviation] = child
-         else:
-            raise ParseError("<{}> with duplicate groups {}".format(self.getTag(), child.abbreviation))
       elif child.getTag() == Description.tag():
          self.description = child
       
@@ -902,10 +806,6 @@ class Message(Parsable, Dispatchable):
    @property
    def fields(self):
       return {k:self._fields[k] for k in self._fields.keys()}
-   
-   @property
-   def groups(self):
-      return {k:self._groups[k] for k in self._groups.keys()}
    
    @property
    def chunksize(self):
@@ -1059,14 +959,6 @@ class Protocol(Parsable, Dispatchable):
             for field in m.fields:
                if field.abbreviation == abbreviation:
                   return field
-         def searchgroup(group):
-            for field in group.fields:
-               if field.abbreviation == abbreviation:
-                  return field
-            for f in map(searchgroup, group.groups):
-               if f is not None:
-                  return f
-            return None
       f = search(self.messages)
       if f is None and self.header is not None:
          f = search(self.header)
@@ -1090,8 +982,7 @@ def register(args_parser, xml_parser):
                           Position,
                              Bits,
                              Chunks,
-                          Weight,
-                    Group
+                          Weight
                    ]:
       xml_parser.registerParsable(parsable)
 
