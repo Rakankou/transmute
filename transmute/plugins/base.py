@@ -2,6 +2,7 @@ import logging
 import itertools
 import operator
 from   abc                     import ABCMeta, abstractmethod
+from   collections             import OrderedDict
 from   ..Parsing.Parsable      import Parsable
 from   ..Parsing.Parser        import Parser, ParseError, ValidationError
 from   ..Dispatch.Dispatchable import Dispatchable
@@ -58,6 +59,9 @@ class Detail(Parsable, Dispatchable):
    @detail.setter
    def detail(self, data):
       self._detail = data
+   
+   def __str__(self):
+      return self._detail
 
 class Brief(Parsable, Dispatchable):
    def __init__(self):
@@ -95,6 +99,9 @@ class Brief(Parsable, Dispatchable):
    @brief.setter
    def brief(self, data):
       self._brief = data
+   
+   def __str__(self):
+      return self._brief
 
 class Description(Parsable, Dispatchable):
    def __init__(self):
@@ -230,12 +237,14 @@ class Values(Parsable, Dispatchable):
       super().__init__()
       self.log     = logging.getLogger('transmute.base.Values')
       self._name   = None
-      self._values = dict()
+      self._values = OrderedDict()
       
    def tag():
       return ':'.join([_prefix, 'values']).lstrip(':')
    
    def Start(self, attrs, evt_stream, node, parser):
+      self._name   = None
+      self._values = OrderedDict()
       super().Start(attrs, evt_stream, node, parser)
       try:
          self._name = attrs['name']
@@ -284,7 +293,7 @@ class Values(Parsable, Dispatchable):
    
    @property
    def values(self):
-      return dict((k,self._values[k]) for k in self._values)
+      return OrderedDict((k,self._values[k]) for k in self._values)
    
    def __len__(self):
       return len(self._values)
@@ -305,6 +314,9 @@ class Bits(Parsable, Dispatchable):
       return ':'.join([_prefix, 'bits']).lstrip(':')
    
    def Start(self, attrs, evt_stream, node, parser):
+      self.start = 0
+      self._end  = None
+      self._mask = None
       super().Start(attrs, evt_stream, node, parser)
       try:
          self.start = int(attrs['start'])
@@ -383,6 +395,7 @@ class Chunks(Parsable, Dispatchable):
       return ':'.join([_prefix, 'chunks']).lstrip(':')
    
    def Start(self, attrs, evt_stream, node, parser):
+      self.length = None
       super().Start(attrs, evt_stream, node, parser)
       try:
          self.length = int(attrs['length'])
@@ -411,15 +424,20 @@ class Chunks(Parsable, Dispatchable):
 class Position(Parsable, Dispatchable):
    def __init__(self):
       super().__init__()
-      self.log     = logging.getLogger('transmute.base.Position')
-      self.index   = 0
-      self._bits   = None
-      self._chunks = None
+      self.log        = logging.getLogger('transmute.base.Position')
+      self.index      = 0
+      self._bits      = None
+      self._chunks    = None
+      self._chunksize = None
    
    def tag():
       return ':'.join([_prefix, 'position']).lstrip(':')
    
    def Start(self, attrs, evt_stream, node, parser):
+      self.index      = 0
+      self._bits      = None
+      self._chunks    = None
+      self._chunksize = None
       super().Start(attrs, evt_stream, node, parser)
       try:
          self.index = int(attrs['index'])
@@ -459,9 +477,12 @@ class Position(Parsable, Dispatchable):
    
    def Validate(self, parent):
       super().Validate(parent)
+      self._chunksize = self.chunksize
    
    @property
    def chunksize(self):
+      if self._chunksize is not None:
+         return self._chunksize
       if self.parent is not None:
          return self.parent.chunksize
    
@@ -486,6 +507,21 @@ class Position(Parsable, Dispatchable):
    @property
    def bitmask(self):
       int(('F' * (self.chunksize / 4)) * len(self._chunks), 16) if self._chunks is not None else self._bits.buildMask()
+   
+   def __or__(self, other):
+      if not isinstance(other, Position):
+         raise NotImplemented("Unusable type '{}' for concatenation with Position type".format(type(other)))
+      if self.chunksize != other.chunksize:
+         raise NotImplemented("Cannot concatenate Position with different chunk sizes")
+      npos = Position()
+      nck  = Chunks()
+      npos.index = min(self.index, other.index)
+      terminus = max(self.index  + (self.bitlength  / self.chunksize),
+                     other.index + (other.bitlength / other.chunksize)
+                    )
+      nck.length = max(1, terminus - npos.index)
+      npos.Child(nck)
+      return npos
 
 class Weight(Parsable, Dispatchable):
    def __init__(self):
@@ -498,6 +534,8 @@ class Weight(Parsable, Dispatchable):
       return ':'.join([_prefix, 'weight']).lstrip(':')
    
    def Start(self, attrs, evt_stream, node, parser):
+      self._lsb    = None
+      self._offset = None
       super().Start(attrs, evt_stream, node, parser)
       try:
          self._lsb = float(attrs['lsb'])
@@ -547,7 +585,7 @@ class Field(Parsable, Dispatchable):
          self._attrs    = dict()
       @abstractmethod
       def Start(self, attrs):
-         self._attrs = attrs
+         self._attrs    = attrs
       @abstractmethod
       def Child(self, child):
          pass
@@ -635,6 +673,8 @@ class Field(Parsable, Dispatchable):
       self.position      = None
       self._endian       = None
       self._values       = None
+      self.ftype_handler = Field.FTypes['undecoded']('', {})
+      self.ftype         = 'undecoded'
       try:
          self.ftype_handler = Field.FTypes[attrs['type']](attrs['type'], self)
          self.ftype = attrs['type']
@@ -823,6 +863,10 @@ class Message(Parsable, Dispatchable):
    def bit0(self):
       if self.parent is not None:
          return self.parent.bit0
+   
+   @property
+   def position(self):
+      
 
 class Header(Message):
    def __init__(self):
