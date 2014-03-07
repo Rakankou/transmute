@@ -216,12 +216,6 @@ def ws_include_guard(file_obj):
 def ws_has_section(dispatchable_obj, section):
    return hasattr(dispatchable_obj, section) and getattr(dispatchable_obj, section) is not None
 
-def ws_has_header(dispatchable_obj):
-   return ws_has_section(dispatchable_obj, 'header')
-
-def ws_has_trailer(dispatchable_obj):
-   return ws_has_section(dispatchable_obj, 'trailer')
-
 def is_tfs(e):
    return (len(e) == 2) and (tuple(e.values[k] for k in e.values) in [(0,1), (1,0)])
 
@@ -237,20 +231,20 @@ def var_decl(v):
    return '{}\n'.format(''.join((v[:v.index('=')].rstrip(),';')))
 
 def write_dissect_fxn(dispatchable_obj, cfile):
-   header  = ws_has_header(dispatchable_obj)
-   #if header:
-   #   for TODO in header.TODO:
-   #      #@todo
-   trailer = ws_has_trailer(dispatchable_obj)
-   #if trailer:
-   #   for TODO in trailer.TODO:
-   #      #@todo
-   
+   if ws_has_section(dispatchable_obj, 'header'):
+      write_dissect_fxn(dispatchable_obj.header, cfile)
+   if ws_has_section(dispatchable_obj, 'trailer'):
+      write_dissect_fxn(dispatchable_obj.trailer, cfile)
+   if ws_has_section(dispatchable_obj, 'messages'):
+      for msg in dispatchable_obj.messages:
+         write_dissect_fxn(dispatchable_obj.messages[msg], cfile)
    cfile.write('{decl}\n{{\n'.format(**{'decl':_ws_text['dissect_fxn_decl'].format(name=abbr2name(dispatchable_obj.abbreviation))}))
    cfile.write('\n'.join(['{indent}gint32       value = 0;',
                           '{indent}tvbuff_t    *tvbr  = NULL;',
                           '{indent}proto_item  *pItem = NULL;',
-                          '{indent}proto_tree  *pTree = NULL;\n'
+                          '{indent}proto_tree  *pTree = NULL;',
+                          '{indent}proto_item  *psubI = NULL;',
+                          '{indent}proto_tree  *psubT = NULL;\n'
                          ]).format(indent = _ws_text['indent'],
                                    name   = abbr2name(dispatchable_obj.abbreviation)
                                   ))
@@ -265,12 +259,9 @@ def write_dissect_fxn(dispatchable_obj, cfile):
    cfile.write('{indent}pTree = proto_item_add_subtree(pItem, ett_{name});\n'.format(indent = _ws_text['indent'],
                                                                                      name   = abbr2name(dispatchable_obj.abbreviation)
                                                                                     ))
-   if header:
-      pass #@todo
-      #@todo add header tree
-      #@todo add header fields
-   # @todo
-   if hasattr(dispatchable_obj, 'fields'):
+   if ws_has_section(dispatchable_obj, 'header'):
+      cfile.write('{indent}dissect_{name}(tvb, pinfo, pTree);\n'.format(name = abbr2name(dispatchable_obj.header.abbreviation), indent = _ws_text['indent']))
+   if ws_has_section(dispatchable_obj, 'fields'):
       pass #@todo
    if hasattr(dispatchable_obj, 'messages'):
       #cfile.write('{indent}tvbr = tvbuff_new_subset(tvb, 0, {length}, {length});\n'.format(indent = _ws_text['indent']
@@ -278,10 +269,8 @@ def write_dissect_fxn(dispatchable_obj, cfile):
       #                                                                                    ))
       pass #@todo
    #     weighted use proto_tree_add_double_format_value
-   if trailer:
-      pass #@todo
-      #@todo add trailer tree
-      #@todo add trailer fields
+   if ws_has_section(dispatchable_obj, 'trailer'):
+      cfile.write('{indent}dissect_{name}(tvb, pinfo, pTree);\n'.format(name = abbrd2name(dispatchable_obj.trailer)))
    cfile.write('}\n')
 
 def dispatch_node(dispatchable_obj, namespace):
@@ -307,9 +296,9 @@ def dispatch_node(dispatchable_obj, namespace):
       namespace['trees'][dispatchable_obj.abbreviation] = dispatchable_obj
    elif dispatchable_obj.getTag() == Protocol.tag():
       namespace['trees'][dispatchable_obj.abbreviation] = dispatchable_obj
-   if ws_has_header(dispatchable_obj):
+   if ws_has_section(dispatchable_obj, header):
       namespace['trees'][dispatchable_obj.header.abbreviation] = dispatchable_obj.header
-   if ws_has_trailer(dispatchable_obj):
+   if ws_has_section(dispatchable_obj, trailer):
       namespace['trees'][dispatchable_obj.trailer.abbreviation] = dispatchable_obj.trailer
    pass #@todo any other objects that need to be added to the tree
 
@@ -346,6 +335,8 @@ def dispatch(dispatchable_obj):
             if child.table not in namespace['joins']:
                namespace['joins'][child.table] = list()
             namespace['joins'][child.table].append(child)
+         else:
+            dispatch_node(child, namespace)
       
       with open(os.path.join(folder, 'packet-{}.c'.format(dispatchable_obj.abbreviation)), 'w') as cfile:
          with open(os.path.join(folder, 'packet-{}.h'.format(dispatchable_obj.abbreviation)), 'w') as hfile:

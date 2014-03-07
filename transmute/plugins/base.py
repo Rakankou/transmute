@@ -866,7 +866,10 @@ class Message(Parsable, Dispatchable):
    
    @property
    def position(self):
-      
+      pos = self._fields.keys()[0].position
+      for f in self._fields.keys()[1:]:
+         pos = pos | self._fields[f].position
+      return pos
 
 class Header(Message):
    def __init__(self):
