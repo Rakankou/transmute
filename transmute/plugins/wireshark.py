@@ -252,9 +252,12 @@ def write_dissect_fxn(dispatchable_obj, cfile):
    cfile.write('{indent}col_set_str(pinfo->cinfo, COL_PROTOCOL, "{name}");\n'.format(indent = _ws_text['indent'],
                                                                                      name   = dispatchable_obj.description.brief
                                                                                     ))
-   cfile.write('{indent}pItem = proto_tree_add_item(   tree, proto_{name}, tvb, 0, -1, ENC_{endian}_ENDIAN);\n'.format(indent = _ws_text['indent'],
+   cfile.write('{indent}pItem = proto_tree_add_item(   tree, {proto_or_hf}_{name}, tvb, {offset}, {length}, ENC_{endian}_ENDIAN);\n'.format(indent = _ws_text['indent'],
                                                                                                                          name   = abbr2name(dispatchable_obj.abbreviation),
-                                                                                                                         endian = "BIG" if dispatchable_obj.endian == Constants.endian['big'] else "LITTLE"
+                                                                                                                         endian = "BIG" if dispatchable_obj.endian == Constants.endian['big'] else "LITTLE",
+                                                                                                                         proto_or_hf = "proto" if dispatchable_obj.getTag() == Protocol.tag() else "hf_msg",
+                                                                                                                         length = dispatchable_obj.position.chunklength,
+                                                                                                                         offset = dispatchable_obj.position.index
                                                                                                                         ))
    cfile.write('{indent}pTree = proto_item_add_subtree(pItem, ett_{name});\n'.format(indent = _ws_text['indent'],
                                                                                      name   = abbr2name(dispatchable_obj.abbreviation)
@@ -296,9 +299,9 @@ def dispatch_node(dispatchable_obj, namespace):
       namespace['trees'][dispatchable_obj.abbreviation] = dispatchable_obj
    elif dispatchable_obj.getTag() == Protocol.tag():
       namespace['trees'][dispatchable_obj.abbreviation] = dispatchable_obj
-   if ws_has_section(dispatchable_obj, header):
+   if ws_has_section(dispatchable_obj, 'header'):
       namespace['trees'][dispatchable_obj.header.abbreviation] = dispatchable_obj.header
-   if ws_has_section(dispatchable_obj, trailer):
+   if ws_has_section(dispatchable_obj, 'trailer'):
       namespace['trees'][dispatchable_obj.trailer.abbreviation] = dispatchable_obj.trailer
    pass #@todo any other objects that need to be added to the tree
 
@@ -374,6 +377,8 @@ def dispatch(dispatchable_obj):
             cfile.write('{decl}\n{{\n'.format(**{'decl':_ws_text['register_fxn_decl'].format(name=abbr2name(dispatchable_obj.abbreviation))}))
             if len(namespace['fields']):
                cfile.write('{indent}static hf_register_info hf[] = {{\n'.format(**{'indent':_ws_text['indent']}))
+               for m in namespace['messages'].values():
+                  cfile.write(ws_header_field(m, namespace))
                for f in namespace['fields'].values():
                   cfile.write(ws_header_field(f, namespace))
                cfile.write('{indent}}};\n'.format(**{'indent':_ws_text['indent']}))

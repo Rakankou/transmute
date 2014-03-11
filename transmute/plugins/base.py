@@ -508,6 +508,10 @@ class Position(Parsable, Dispatchable):
    def bitmask(self):
       int(('F' * (self.chunksize / 4)) * len(self._chunks), 16) if self._chunks is not None else self._bits.buildMask()
    
+   @property
+   def chunklength(self):
+      return self._chunks if self._chunks is not None else (self.bitlength // self.chunksize + (1 if self.bitlength % self.chunksize else 0))
+   
    def __or__(self, other):
       if not isinstance(other, Position):
          raise NotImplemented("Unusable type '{}' for concatenation with Position type".format(type(other)))
@@ -520,6 +524,15 @@ class Position(Parsable, Dispatchable):
                      other.index + (other.bitlength / other.chunksize)
                     )
       nck.length = max(1, terminus - npos.index)
+      npos.Child(nck)
+      return npos
+   
+   @staticmethod
+   def create(index, chunks):
+      npos = Position()
+      nck  = Chunks()
+      npos.index = index
+      nck.length = chunks
       npos.Child(nck)
       return npos
 
@@ -767,6 +780,8 @@ class Message(Parsable, Dispatchable):
       self._fields      = dict()
       self._groups      = dict()
       self._endian      = None
+      self.header       = None
+      self.trailer      = None
       
    def tag():
       return ':'.join([_prefix, 'message']).lstrip(':')
@@ -778,6 +793,8 @@ class Message(Parsable, Dispatchable):
       self._fields      = dict()
       self._groups      = dict()
       self._endian      = None
+      self.header       = None
+      self.trailer      = None
             
       for element in parser.parseString(parser.getSubXml(evt_stream, node)):
          self.Child(element)
@@ -804,6 +821,10 @@ class Message(Parsable, Dispatchable):
             raise ParseError("<{}> with duplicate fields {}".format(self.getTag(), child.abbreviation))
       elif child.getTag() == Description.tag():
          self.description = child
+      elif child.getTag() == Header.tag():
+         self.header = child
+      elif child.getTag() == Trailer.tag():
+         self.trailer = child
       
    def Validate(self, parent):
       if self._endian is None:
@@ -866,9 +887,14 @@ class Message(Parsable, Dispatchable):
    
    @property
    def position(self):
-      pos = self._fields.keys()[0].position
-      for f in self._fields.keys()[1:]:
-         pos = pos | self._fields[f].position
+      keygen = (k for k in self._fields.values())
+      pos = next(keygen).position
+      for f in keygen:
+         pos = pos | f.position
+      if self.header is not None:
+         pos = pos | self.header.position
+      if self.trailer is not None:
+         pos = pos | self.trailer.position
       return pos
 
 class Header(Message):
@@ -1015,6 +1041,10 @@ class Protocol(Parsable, Dispatchable):
    
    def hasField(self, abbreviation):
       return self.getField(abbreviation) is not None
+   
+   @property
+   def position(self):
+      return Position.create(0, -1)
             
 
 def register(args_parser, xml_parser):
