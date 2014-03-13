@@ -862,11 +862,11 @@ class Message(Parsable, Dispatchable):
    
    @property
    def values(self):
-      return dict((k,self._values[k]) for k in self._values)
+      return dict((k,self._values[k]) for k in self._values.keys())
    
    @property
    def fields(self):
-      return {k:self._fields[k] for k in self._fields.keys()}
+      return dict((k,self._fields[k]) for k in self._fields.keys())
    
    @property
    def chunksize(self):
@@ -1027,16 +1027,22 @@ class Protocol(Parsable, Dispatchable):
       return self._endian
    
    def getField(self, abbreviation):
-      def search(chunk):
-         for m in chunk:
-            for field in m.fields:
+      self.log.debug("Searching for {} in {}".format(abbreviation, self.abbreviation))
+      def search(chunks):
+         self.log.debug("   Searching {} for {}".format(chunks, abbreviation))
+         for c in chunks.values():
+            self.log.debug("      Searching {} for {}".format(c, abbreviation))
+            for field in c.fields.values():
+               self.log.debug("         Comparing {} to {}".format(field, abbreviation))
                if field.abbreviation == abbreviation:
+                  self.log.debug("         Selecting {}".format(field))
                   return field
+                  self.log.debug("         Rejecting {}".format(field))
       f = search(self.messages)
       if f is None and self.header is not None:
-         f = search(self.header)
+         f = search(dict(((self.header.abbreviation, self.header),)))
       if f is None and self.trailer is not None:
-         f = search(self.trailer)
+         f = search(dict(((self.trailer.abbreviation, self.trailer),)))
       return f
    
    def hasField(self, abbreviation):

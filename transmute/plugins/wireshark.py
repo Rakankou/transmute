@@ -50,7 +50,7 @@ class Register(Parsable):
       return ':'.join([_prefix, 'register']).lstrip(':')
    
    def Start(self, attrs, evt_stream, node, parser):
-      if args_ns.ws:
+      if args_ns.wireshark:
          try:
             self.table = attrs['table']
             self.value = attrs['value']
@@ -78,7 +78,7 @@ class Expose(Parsable):
       return ':'.join([_prefix, 'expose']).lstrip(':')
    
    def Start(self, attrs, evt_stream, node, parser):
-      if args_ns.ws:
+      if args_ns.wireshark:
          try:
             self.field = attrs['field']
          except KeyError as ki:
@@ -158,7 +158,7 @@ def abbr2name(abbreviation):
 def ws_field_ftype(f):
    ftype = _ws_ftypes[f.ftype]
    if 'INT' in ftype:
-      bitlength = f.bitlength()
+      bitlength = f.position.bitlength
       if   1  <= bitlength <= 8:
          ftype = ''.join((ftype, '8'))
       elif       bitlength <= 16:
@@ -172,8 +172,8 @@ def ws_field_ftype(f):
    return ftype
 
 def ws_field_basetype(f):
-   bitlength = f.bitlength()
-   if 'INT' in ftype:
+   bitlength = f.position.bitlength
+   if 'INT' in f.ftype:
       if   bitlength % 4 == 0:
          return 'HEX'
       elif bitlength % 3 == 0:
@@ -265,11 +265,23 @@ def write_dissect_fxn(dispatchable_obj, cfile):
    if ws_has_section(dispatchable_obj, 'header'):
       cfile.write('{indent}dissect_{name}(tvb, pinfo, pTree);\n'.format(name = abbr2name(dispatchable_obj.header.abbreviation), indent = _ws_text['indent']))
    if ws_has_section(dispatchable_obj, 'fields'):
-      pass #@todo
-   if hasattr(dispatchable_obj, 'messages'):
-      #cfile.write('{indent}tvbr = tvbuff_new_subset(tvb, 0, {length}, {length});\n'.format(indent = _ws_text['indent']
-      #                                                                                     length = TODO
-      #                                                                                    ))
+      for f in dispatchable_obj.fields.values():
+         cfile.write('{indent}proto_tree_add_item(pTree, hf_{name}, tvb, {offset}, {length}, ENC_{endian}_ENDIAN);\n'.format(indent = _ws_text['indent'],
+                                                                                                                             name   = abbr2name(f.description.abbreviation),
+                                                                                                                             endian = "BIG" if f.endian == Constants.endian['big'] else "LITTLE",
+                                                                                                                             length = f.position.chunklength,
+                                                                                                                             offset = f.position.index
+                                                                                                                            ))
+         #@todo do bitlength items need to be added differently?
+   if ws_has_section(dispatchable_obj, 'messages'):
+      cfile.write('{indent}value = tvb_length(tvb);\n'.format(indent = _ws_text['indent']))
+      if ws_has_section(dispatchable_obj, 'header'):
+         cfile.write('{indent}value -= {length}; //header length\n'.format(indent = _ws_text['indent'], length = dispatchable_obj.header.position.chunklength))
+      if ws_has_section(dispatchable_obj, 'trailer'):
+         cfile.write('{indent}value -= {length}; //trailer length\n'.format(indent = _ws_text['indent'], length = dispatchable_obj.trailer.position.chunklength))
+      cfile.write('{indent}tvbr = tvbuff_new_subset(tvb, {offset}, value, value);\n'.format(indent = _ws_text['indent'],
+                                                                                            offset = dispatchable_obj.header.position.chunklength if ws_has_section(dispatchable_obj, 'header') else 0
+                                                                                           ))
       pass #@todo
    #     weighted use proto_tree_add_double_format_value
    if ws_has_section(dispatchable_obj, 'trailer'):
@@ -399,11 +411,11 @@ def dispatch(dispatchable_obj):
             if len(namespace['fields']):
                cfile.write('{indent}proto_register_field_array(proto_{name}, hf);\n'.format(**{'indent':_ws_text['indent'], 'name':abbr2name(dispatchable_obj.abbreviation)}))
             cfile.write('{indent}proto_register_subtree_array(proto_{name}, ett, array_length(ett));\n'.format(**{'indent':_ws_text['indent'], 'name':abbr2name(dispatchable_obj.abbreviation)}))
-            for table in namespace['tables']:
+            for table in namespace['tables'].values():
                field = dispatchable_obj.getField(table.field)
                cfile.write('{indent}register_dissector_table("{field}", "{descr}", FT_{ftype}, BASE_{btype});\n'.format(indent = _ws_text['indent'],
                                                                                                                         field  = table.field,
-                                                                                                                        descr  = field.brief,
+                                                                                                                        descr  = field.description.brief,
                                                                                                                         ftype  = ws_field_ftype(field),
                                                                                                                         btype  = ws_field_basetype(field)
                                                                                                                        ))
