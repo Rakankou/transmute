@@ -420,6 +420,9 @@ class Chunks(Parsable, Dispatchable):
    
    def __len__(self):
       return self.length
+   
+   def __int__(self):
+      return self.length if self.length is not None else 0
 
 class Position(Parsable, Dispatchable):
    def __init__(self):
@@ -506,11 +509,11 @@ class Position(Parsable, Dispatchable):
    
    @property
    def bitmask(self):
-      int(('F' * (self.chunksize / 4)) * len(self._chunks), 16) if self._chunks is not None else self._bits.buildMask()
+      return int(('F' * (self.chunksize / 4)) * len(self._chunks), 16) if self._chunks is not None else self._bits.buildMask(self.chunksize, self.bit0)
    
    @property
    def chunklength(self):
-      return self._chunks if self._chunks is not None else (self.bitlength // self.chunksize + (1 if self.bitlength % self.chunksize else 0))
+      return self._chunks.length if self._chunks is not None else (self.bitlength // self.chunksize + (1 if self.bitlength % self.chunksize else 0))
    
    def __or__(self, other):
       if not isinstance(other, Position):

@@ -7,7 +7,7 @@ from   ..                      import version_string as transmute_version
 from   ..Parsing.Parsable      import Parsable
 from   ..Parsing.Parser        import ParseError
 from   .base                   import *
-from   ..Dispatch.Dispatchable import DispatchError
+from   ..Dispatch.Dispatchable import Dispatchable, DispatchError
 
 ##
 # @brief The application version number.
@@ -155,8 +155,11 @@ _ws_ftypes = {'undecoded'         : 'NONE',
 def abbr2name(abbreviation):
    return abbreviation.replace('.','_').replace('-','_')
 
+def ws_has_section(dispatchable_obj, section):
+   return hasattr(dispatchable_obj, section) and getattr(dispatchable_obj, section) is not None
+
 def ws_field_ftype(f):
-   ftype = _ws_ftypes[f.ftype]
+   ftype = _ws_ftypes[f.ftype if ws_has_section(f, 'ftype') else 'undecoded']
    if 'INT' in ftype:
       bitlength = f.position.bitlength
       if   1  <= bitlength <= 8:
@@ -173,7 +176,8 @@ def ws_field_ftype(f):
 
 def ws_field_basetype(f):
    bitlength = f.position.bitlength
-   if 'INT' in f.ftype:
+   ftype = _ws_ftypes[f.ftype if ws_has_section(f, 'ftype') else 'undecoded']
+   if 'INT' in ftype:
       if   bitlength % 4 == 0:
          return 'HEX'
       elif bitlength % 3 == 0:
@@ -191,30 +195,25 @@ def ws_header_field(f, namespace):
             'ftype'       : _ws_ftypes[f.ftype if hasattr(f, 'ftype') else 'undecoded'],
             'btype'       : 'NONE',
             'VALS'        : 'NULL',
-            'mask'        : '0x0',
+            'mask'        : 0x0,
             'detail'      : f.description.detail
            }
    
    attrs['ftype'] = ws_field_ftype(f)
    attrs['btype'] = ws_field_basetype(f)
    
-   if f.ftype[:4] == 'enum':
+   if attrs['ftype'][:4] == 'enum':
       attrs['VALS'] = 'VALS({vstr}_{vname})'.format(**{'vstr' : 'tfs' if is_tfs(f.values) else 'vs',
                                                        'vname': f.values.name if f.values.name else abbr2name(f.description.abbreviation)
                                                       })
-   if f.bitstart or f.bitlength % f.chunksize:
-      mask = hex(f.bitmask)
+   if isinstance(f, Field):
+      mask = hex(f.position.bitmask)
    
-   return '{indent}{s}'.format(**{
-               'indent':_ws_text['indent'],
-               's':_ws_text['header_field'].format(**attrs).replace(
-                  '\n','\n{indent}'.format(**{'indent':_ws_text['indent']}))})
+   return '{indent}{s}'.format(indent = _ws_text['indent'],
+                               s      = _ws_text['header_field'].format(**attrs))
 
 def ws_include_guard(file_obj):
    return os.path.basename('{}_'.format(file_obj.name.upper().replace('-','_').replace('.','_')))
-
-def ws_has_section(dispatchable_obj, section):
-   return hasattr(dispatchable_obj, section) and getattr(dispatchable_obj, section) is not None
 
 def is_tfs(e):
    return (len(e) == 2) and (tuple(e.values[k] for k in e.values) in [(0,1), (1,0)])
@@ -239,12 +238,13 @@ def write_dissect_fxn(dispatchable_obj, cfile):
       for msg in dispatchable_obj.messages:
          write_dissect_fxn(dispatchable_obj.messages[msg], cfile)
    cfile.write('{decl}\n{{\n'.format(**{'decl':_ws_text['dissect_fxn_decl'].format(name=abbr2name(dispatchable_obj.abbreviation))}))
-   cfile.write('\n'.join(['{indent}gint32       value = 0;',
-                          '{indent}tvbuff_t    *tvbr  = NULL;',
-                          '{indent}proto_item  *pItem = NULL;',
-                          '{indent}proto_tree  *pTree = NULL;',
-                          '{indent}proto_item  *psubI = NULL;',
-                          '{indent}proto_tree  *psubT = NULL;\n'
+   cfile.write('\n'.join(['{indent}gint32            value  = 0;',
+                          '{indent}tvbuff_t         *tvbr   = NULL;',
+                          '{indent}proto_item       *pItem  = NULL;',
+                          '{indent}proto_tree       *pTree  = NULL;',
+                          '{indent}proto_item       *psubI  = NULL;',
+                          '{indent}proto_tree       *psubT  = NULL;',
+                          '{indent}dissector_table_t pTable = NULL;\n'
                          ]).format(indent = _ws_text['indent'],
                                    name   = abbr2name(dispatchable_obj.abbreviation)
                                   ))
@@ -282,22 +282,23 @@ def write_dissect_fxn(dispatchable_obj, cfile):
       cfile.write('{indent}tvbr = tvbuff_new_subset(tvb, {offset}, value, value);\n'.format(indent = _ws_text['indent'],
                                                                                             offset = dispatchable_obj.header.position.chunklength if ws_has_section(dispatchable_obj, 'header') else 0
                                                                                            ))
-      pass #@todo
+      for table in (c for c in dispatchable_obj.children if isinstance(c, Expose)):
+         cfile.write('{indent}pTable = find_dissector_table("{name}");\n'.format(indent = _ws_text['indent'],
+                                                                                 name   = table.field
+                                                                                ))
+         tfield = dispatchable_obj.getField(table.field)
+         cfile.write('{indent}value = tvb_get_bits32(tvb, {bitoffs}, {bitlen}, {enc});\n'.format(indent  = _ws_text['indent'],
+                                                                                                 bitoffs = tfield.position.bitstart + (tfield.position.chunksize * tfield.position.index),
+                                                                                                 bitlen  = tfield.position.bitlength,
+                                                                                                 enc     = "ENC_LITTLE_ENDIAN" if tfield.endian == Constants.endian['little'] else "ENC_BIG_ENDIAN"
+                                                                                                ))
+         cfile.write('{indent}if(pTable)\n{indent}{{\n{indent}{indent}dissector_try_uint(pTable, value, pinfo, tree);\n{indent}}}\n'.format(indent = _ws_text['indent']))
    #     weighted use proto_tree_add_double_format_value
    if ws_has_section(dispatchable_obj, 'trailer'):
-      cfile.write('{indent}dissect_{name}(tvb, pinfo, pTree);\n'.format(name = abbrd2name(dispatchable_obj.trailer)))
-   cfile.write('}\n')
+      cfile.write('{indent}dissect_{name}(tvb, pinfo, pTree);\n'.format(name = abbr2name(dispatchable_obj.trailer)))
+   cfile.write('}\n\n')
 
 def dispatch_node(dispatchable_obj, namespace):
-   if hasattr(dispatchable_obj, 'values') and dispatchable_obj.getTag() != Values.tag():
-      for vs in dispatchable_obj.values.values():
-         if vs.name in (set(namespace['enums'].keys()) | set(namespace['value_strings'].keys()) | set(namespace['true_false_strings'].keys())):
-            raise DispatchError("More than one enumeration with name {name}".format(name = vs.name))
-         namespace['enums'][vs.name] = _ws_text['enum'].format(name=vs.name, values=',\n'.join([_ws_text['enum_value'].format(indent=_ws_text['indent'], name=v, value=vs.values[v].ival) for v in vs.values]))
-         if is_tfs(vs):
-            namespace['true_false_strings'][vs.name] = "{indent}{tfs}".format(**{'indent':_ws_text['indent'], 'tfs':_ws_text['true_false_string'].format(name=vs.name, vtrue=tfg_get(vs,1),vfalse=tfs_get(vs,0))})
-         else:
-            namespace['value_strings'][vs.name] = "{vs}".format(vs = _ws_text['value_string'].format(name=vs.name, indent=_ws_text['indent'], values=',\n'.join([_ws_text['vs_value'].format(name=v, indent=_ws_text['indent']) for v in vs.values.keys()])))
    if   dispatchable_obj.getTag() == Field.tag():
       if dispatchable_obj.abbreviation in namespace['fields']:
          raise DispatchError("More than one field with name {name}".format(name = dispatchable_obj.abbreviation))
@@ -311,11 +312,37 @@ def dispatch_node(dispatchable_obj, namespace):
       namespace['trees'][dispatchable_obj.abbreviation] = dispatchable_obj
    elif dispatchable_obj.getTag() == Protocol.tag():
       namespace['trees'][dispatchable_obj.abbreviation] = dispatchable_obj
+   elif dispatchable_obj.getTag() == Values.tag():
+      if dispatchable_obj.name in (set(namespace['enums'].keys()) | set(namespace['value_strings'].keys()) | set(namespace['true_false_strings'].keys())):
+         if len(dispatchable_obj):
+            raise DispatchError("More than one enumeration with name {name}".format(name = dispatchable_obj.name))
+      else:
+         if not len(dispatchable_obj):
+            raise DispatchError("Enumeration '{name}' referenced before definition".format(name = dispatchable_obj.name))
+         namespace['enums'][dispatchable_obj.name] = _ws_text['enum'].format(name=dispatchable_obj.name, values=',\n'.join([_ws_text['enum_value'].format(indent=_ws_text['indent'], name=v, value=dispatchable_obj.values[v].ival) for v in dispatchable_obj.values]))
+         if is_tfs(dispatchable_obj):
+            namespace['true_false_strings'][dispatchable_obj.name] = "{indent}{tfs}".format(**{'indent':_ws_text['indent'], 'tfs':_ws_text['true_false_string'].format(name=dispatchable_obj.name, vtrue=tfg_get(dispatchable_obj,1),vfalse=tfs_get(dispatchable_obj,0))})
+         else:
+            namespace['value_strings'][dispatchable_obj.name] = "{vs}".format(vs = _ws_text['value_string'].format(name=dispatchable_obj.name, indent=_ws_text['indent'], values=',\n'.join([_ws_text['vs_value'].format(name=v, indent=_ws_text['indent']) for v in dispatchable_obj.values.keys()])))
+   elif dispatchable_obj.getTag() == Expose.tag():
+      if dispatchable_obj.field in namespace['tables']:
+         raise DispatchError("More than one <{}> with name '{}'".format(Expose.tag(), dispatchable_obj.field))
+      if not dispatchable_obj.parent.hasField(dispatchable_obj.field):
+         raise DispatchError("<{}> specifies unavailable field '{}'".format(Expose.tag(), dispatchable_obj.field))
+      namespace['tables'][dispatchable_obj.field] = dispatchable_obj
+   elif dispatchable_obj.getTag() == Register.tag():
+      if dispatchable_obj.table not in namespace['joins']:
+         namespace['joins'][dispatchable_obj.table] = list()
+      namespace['joins'][dispatchable_obj.table].append(dispatchable_obj)
    if ws_has_section(dispatchable_obj, 'header'):
       namespace['trees'][dispatchable_obj.header.abbreviation] = dispatchable_obj.header
    if ws_has_section(dispatchable_obj, 'trailer'):
       namespace['trees'][dispatchable_obj.trailer.abbreviation] = dispatchable_obj.trailer
-   pass #@todo any other objects that need to be added to the tree
+   
+   pass #@todo any other objects that need to be added to the namespace
+   
+   for child in dispatchable_obj.children:
+      dispatch_node(child, namespace)
 
 def dispatch(dispatchable_obj):
    if args_ns.wireshark and dispatchable_obj.getTag() == Protocol.tag():
@@ -339,19 +366,6 @@ def dispatch(dispatchable_obj):
                   }
       
       dispatch_node(dispatchable_obj, namespace)
-      for child in dispatchable_obj.children:
-         if   child.getTag() == Expose.tag():
-            if child.field in namespace['tables']:
-               raise DispatchError("More than one <{}> with name '{}'".format(Expose.tag(), child.field))
-            if not dispatchable_obj.hasField(child.field):
-               raise DispatchError("<{}> specifies unavailable field '{}'".format(Expose.tag(), child.field))
-            namespace['tables'][child.field] = child
-         elif child.getTag() == Register.tag():
-            if child.table not in namespace['joins']:
-               namespace['joins'][child.table] = list()
-            namespace['joins'][child.table].append(child)
-         else:
-            dispatch_node(child, namespace)
       
       with open(os.path.join(folder, 'packet-{}.c'.format(dispatchable_obj.abbreviation)), 'w') as cfile:
          with open(os.path.join(folder, 'packet-{}.h'.format(dispatchable_obj.abbreviation)), 'w') as hfile:
@@ -364,22 +378,22 @@ def dispatch(dispatchable_obj):
             
             cfile.write('static int proto_{name} = -1;\n'.format(name = abbr2name(dispatchable_obj.abbreviation)))
             
-            for field in namespace['fields']:
+            for field in namespace['fields'].values():
                cfile.write('static int hf_{hf} = -1;\n'.format(hf=abbr2name(field.abbreviation)))
             
-            for tree in namespace['trees']:
-               cfile.write('static gint ett_{ett} = -1;\n'.format(ett=abbr2name(namespace['trees'][tree].abbreviation)))
+            for tree in namespace['trees'].values():
+               cfile.write('static gint ett_{ett} = -1;\n'.format(ett=abbr2name(tree.abbreviation)))
             
-            for enum in namespace['enums']:
-               hfile.write(namespace['enums'][enum]);
+            for enum in namespace['enums'].values():
+               hfile.write(enum);
             
-            for vs in namespace['value_strings']:
-               hfile.write(var_decl(namespace['value_strings'][vs]))
-               cfile.write(namespace['value_strings'][vs])
+            for vs in namespace['value_strings'].values():
+               hfile.write(var_decl(vs))
+               cfile.write(vs)
             
-            for tfs in namespace['true_false_strings']:
-               hfile.write(var_decl(namespace['true_false_strings'][tfs]))
-               cfile.write(namespace['true_false_strings'][tfs])
+            for tfs in namespace['true_false_strings'].values():
+               hfile.write(var_decl(tfs))
+               cfile.write(tfs)
             
             hfile.write('#endif /* {include_guard} */\n'.format(include_guard = ws_include_guard(hfile)))
             
@@ -400,14 +414,15 @@ def dispatch(dispatchable_obj):
             cfile.write('{indent}}};\n'.format(**{'indent':_ws_text['indent']}))
             cfile.write('{indent}dissector_handle_t {name}_handle;\n'.format(**{'indent':_ws_text['indent'], 'name':abbr2name(dispatchable_obj.abbreviation)}))
             cfile.write('{indent}module_t *{name}_module;\n'.format(**{'indent':_ws_text['indent'], 'name':abbr2name(dispatchable_obj.abbreviation)}))
-            cfile.write('{indent}{name}_handle = create_dissector_handle(dissect_{name}, proto_{name});\n'.format(**{'indent':_ws_text['indent'], 'name':abbr2name(dispatchable_obj.abbreviation)}))
-            #  /* other vars (pref_t, etc.) */
+            for m in namespace['messages'].values():
+               pass #@todo: register a dissector for every message?
             cfile.write('{indent}proto_{name} = proto_register_protocol("{detail}", "{brief}", "{abbreviation}");\n'.format(**{'indent'       : _ws_text['indent'], 
                                                                                                                               'name'         : abbr2name(dispatchable_obj.abbreviation),
                                                                                                                               'detail'       : dispatchable_obj.description.detail,
                                                                                                                               'brief'        : dispatchable_obj.description.brief,
                                                                                                                               'abbreviation' : dispatchable_obj.description.abbreviation
                                                                                                                               }))
+            cfile.write('{indent}{name}_handle = create_dissector_handle(dissect_{name}, proto_{name});\n'.format(**{'indent':_ws_text['indent'], 'name':abbr2name(dispatchable_obj.abbreviation)}))
             if len(namespace['fields']):
                cfile.write('{indent}proto_register_field_array(proto_{name}, hf);\n'.format(**{'indent':_ws_text['indent'], 'name':abbr2name(dispatchable_obj.abbreviation)}))
             cfile.write('{indent}proto_register_subtree_array(proto_{name}, ett, array_length(ett));\n'.format(**{'indent':_ws_text['indent'], 'name':abbr2name(dispatchable_obj.abbreviation)}))
@@ -419,15 +434,23 @@ def dispatch(dispatchable_obj):
                                                                                                                         ftype  = ws_field_ftype(field),
                                                                                                                         btype  = ws_field_basetype(field)
                                                                                                                        ))
-            cfile.write('}\n')
+            cfile.write('}\n\n')
             #proto_reg_handoff...
             cfile.write('{decl}\n{{\n'.format(**{'decl':_ws_text['handoff_fxn_decl'].format(name=abbr2name(dispatchable_obj.abbreviation))}))
-            cfile.write('{indent}dissector_handle_t {name}_handle = find_dissector("{name}");\n'.format(indent = _ws_text['indent'], name=abbr2name(dispatchable_obj.abbreviation)))
-            for join in namespace['joins']:
+            handles = set()
+            for join in namespace['joins'].values():
                for r in join:
-                  cfile.write('{indent}dissector_add("{table}", {value}, {name}_handle);\n"'.format(indent = _ws_text[indent],
-                                                                                                    table  = r.table,
-                                                                                                    value  = r.value,
-                                                                                                    name   = abbr2name(dispatchable_obj.abbreviation)))
+                  handles.add('handle_{name}'.format(name = abbr2name(r.parent.abbreviation)))
+            for h in handles:
+                  cfile.write('{indent}dissector_handle_t {handle};\n'.format(indent = _ws_text['indent'], handle = h))
+            cfile.write('{indent}dissector_handle_t handle_{name} = find_dissector("{name}");\n'.format(indent = _ws_text['indent'], name=abbr2name(dispatchable_obj.abbreviation)))
+            for join in namespace['joins'].values():
+               for r in join:
+                  cfile.write('{indent}handle_{name} = find_dissector("{name}");\n'.format(indent = _ws_text['indent'], name=abbr2name(r.parent.abbreviation)))
+                  
+                  cfile.write('{indent}dissector_add("{table}", {value}, handle_{name});\n'.format(indent = _ws_text['indent'],
+                                                                                                   table  = r.table,
+                                                                                                   value  = r.value,
+                                                                                                   name   = abbr2name(r.parent.abbreviation)))
             # /* @todo register other dissectors against own tables */
             cfile.write('}\n')
