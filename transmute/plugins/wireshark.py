@@ -187,7 +187,7 @@ def ws_field_basetype(f):
    else:
       return 'NONE'
 
-def ws_header_field(f, namespace):
+def ws_header_field(f):
    attrs = {'indent'      : _ws_text['indent'],
             'name'        : abbr2name(f.description.abbreviation),
             'brief'       : f.description.brief,
@@ -298,6 +298,76 @@ def write_dissect_fxn(dispatchable_obj, cfile):
       cfile.write('{indent}dissect_{name}(tvb, pinfo, pTree);\n'.format(name = abbr2name(dispatchable_obj.trailer)))
    cfile.write('}\n\n')
 
+def write_register_fxn(dispatchable_obj, cfile):
+   cfile.write('{decl}\n{{\n'.format(**{'decl':_ws_text['register_fxn_decl'].format(name=abbr2name(dispatchable_obj.abbreviation))}))
+   if dispatchable_obj.hasFields():
+      cfile.write('{indent}static hf_register_info hf[] = {{\n'.format(**{'indent':_ws_text['indent']}))
+      if ws_has_section(dispatchable_obj, 'header'):
+         for f in dispatchable_obj.header.fields.values():
+            cfile.write(ws_header_field(f))
+      if ws_has_section(dispatchable_obj, 'fields'):
+         for f in dispatchable_obj.fields.values():
+            cfile.write(ws_header_field(f))
+      if ws_has_section(dispatchable_obj, 'trailer'):
+         for f in dispatchable_obj.trailer.fields.values():
+            cfile.write(ws_header_field(f))
+      if isinstance(dispatchable_obj, Message):
+         cfile.write(ws_header_field(dispatchable_obj))
+      cfile.write('{indent}}};\n'.format(**{'indent':_ws_text['indent']}))
+   cfile.write('{indent}static gint *ett[] = {{\n'.format(**{'indent':_ws_text['indent']}))
+   cfile.write('{indent}{indent}&ett_{ett}\n'.format(**{'indent':_ws_text['indent'], 'ett':abbr2name(dispatchable_obj.abbreviation)}))
+   if ws_has_section(dispatchable_obj, 'header'):
+      cfile.write('{indent}{indent}&ett_{ett}\n'.format(**{'indent':_ws_text['indent'], 'ett':abbr2name(dispatchable_obj.header.abbreviation)}))
+   if ws_has_section(dispatchable_obj, 'trailer'):
+      cfile.write('{indent}{indent}&ett_{ett}\n'.format(**{'indent':_ws_text['indent'], 'ett':abbr2name(dispatchable_obj.trailer.abbreviation)}))
+   cfile.write('{indent}}};\n'.format(**{'indent':_ws_text['indent']}))
+   cfile.write('{indent}dissector_handle_t handle_{name};\n'.format(**{'indent':_ws_text['indent'], 'name':abbr2name(dispatchable_obj.abbreviation)}))
+   cfile.write('{indent}module_t *module_{name};\n'.format(**{'indent':_ws_text['indent'], 'name':abbr2name(dispatchable_obj.abbreviation)}))
+   cfile.write('{indent}proto_{name} = proto_register_protocol("{detail}", "{brief}", "{abbreviation}");\n'.format(**{'indent'       : _ws_text['indent'], 
+                                                                                                                     'name'         : abbr2name(dispatchable_obj.abbreviation),
+                                                                                                                     'detail'       : dispatchable_obj.description.detail,
+                                                                                                                     'brief'        : dispatchable_obj.description.brief,
+                                                                                                                     'abbreviation' : dispatchable_obj.description.abbreviation
+                                                                                                                     }))
+   cfile.write('{indent}handle_{name} = create_dissector_handle(dissect_{name}, proto_{name});\n'.format(**{'indent':_ws_text['indent'], 'name':abbr2name(dispatchable_obj.abbreviation)}))
+   if dispatchable_obj.hasFields():
+      cfile.write('{indent}proto_register_field_array(proto_{name}, hf);\n'.format(**{'indent':_ws_text['indent'], 'name':abbr2name(dispatchable_obj.abbreviation)}))
+   cfile.write('{indent}proto_register_subtree_array(proto_{name}, ett, array_length(ett));\n'.format(**{'indent':_ws_text['indent'], 'name':abbr2name(dispatchable_obj.abbreviation)}))
+   for table in (c for c in dispatchable_obj.children if isinstance(c, Expose)):
+      field = dispatchable_obj.getField(table.field)
+      cfile.write('{indent}register_dissector_table("{field}", "{descr}", FT_{ftype}, BASE_{btype});\n'.format(indent = _ws_text['indent'],
+                                                                                                               field  = table.field,
+                                                                                                               descr  = field.description.brief,
+                                                                                                               ftype  = ws_field_ftype(field),
+                                                                                                               btype  = ws_field_basetype(field)
+                                                                                                              ))
+   cfile.write('}\n\n')
+   if ws_has_section(dispatchable_obj, 'messages'):
+      for m in dispatchable_obj.messages.values():
+         write_register_fxn(m, cfile)
+
+def write_handoff_fxn(dispatchable_obj, cfile):
+   cfile.write('{decl}\n{{\n'.format(**{'decl':_ws_text['handoff_fxn_decl'].format(name=abbr2name(dispatchable_obj.abbreviation))}))
+   handles = set()
+   joins = [j for j in dispatchable_obj.children if isinstance(j, Register)]
+   for j in joins:
+      handles.add('handle_{name}'.format(name = abbr2name(j.parent.abbreviation)))
+   for h in handles:
+         cfile.write('{indent}dissector_handle_t {handle};\n'.format(indent = _ws_text['indent'], handle = h))
+   cfile.write('{indent}dissector_handle_t handle_{name} = find_dissector("{name}");\n'.format(indent = _ws_text['indent'], name=abbr2name(dispatchable_obj.abbreviation)))
+   for j in joins:
+      cfile.write('{indent}handle_{name} = find_dissector("{name}");\n'.format(indent = _ws_text['indent'], name=abbr2name(j.parent.abbreviation)))
+      
+      cfile.write('{indent}dissector_add("{table}", {value}, handle_{name});\n'.format(indent = _ws_text['indent'],
+                                                                                       table  = j.table,
+                                                                                       value  = j.value,
+                                                                                       name   = abbr2name(j.parent.abbreviation)))
+   # /* @todo register other dissectors against own tables */
+   cfile.write('}\n\n')
+   if ws_has_section(dispatchable_obj, 'messages'):
+      for m in dispatchable_obj.messages.values():
+         write_handoff_fxn(m, cfile)
+
 def dispatch_node(dispatchable_obj, namespace):
    if   dispatchable_obj.getTag() == Field.tag():
       if dispatchable_obj.abbreviation in namespace['fields']:
@@ -398,59 +468,8 @@ def dispatch(dispatchable_obj):
             hfile.write('#endif /* {include_guard} */\n'.format(include_guard = ws_include_guard(hfile)))
             
             #dissect_...
-            write_dissect_fxn(dispatchable_obj, cfile);
+            write_dissect_fxn(dispatchable_obj, cfile)
             #proto_register...
-            cfile.write('{decl}\n{{\n'.format(**{'decl':_ws_text['register_fxn_decl'].format(name=abbr2name(dispatchable_obj.abbreviation))}))
-            if len(namespace['fields']):
-               cfile.write('{indent}static hf_register_info hf[] = {{\n'.format(**{'indent':_ws_text['indent']}))
-               for m in namespace['messages'].values():
-                  cfile.write(ws_header_field(m, namespace))
-               for f in namespace['fields'].values():
-                  cfile.write(ws_header_field(f, namespace))
-               cfile.write('{indent}}};\n'.format(**{'indent':_ws_text['indent']}))
-            cfile.write('{indent}static gint *ett[] = {{\n'.format(**{'indent':_ws_text['indent']}))
-            for tree in namespace['trees']:
-               cfile.write('{indent}{indent}&ett_{ett}\n'.format(**{'indent':_ws_text['indent'], 'ett':abbr2name(namespace['trees'][tree].abbreviation)}))
-            cfile.write('{indent}}};\n'.format(**{'indent':_ws_text['indent']}))
-            cfile.write('{indent}dissector_handle_t {name}_handle;\n'.format(**{'indent':_ws_text['indent'], 'name':abbr2name(dispatchable_obj.abbreviation)}))
-            cfile.write('{indent}module_t *{name}_module;\n'.format(**{'indent':_ws_text['indent'], 'name':abbr2name(dispatchable_obj.abbreviation)}))
-            for m in namespace['messages'].values():
-               pass #@todo: register a dissector for every message?
-            cfile.write('{indent}proto_{name} = proto_register_protocol("{detail}", "{brief}", "{abbreviation}");\n'.format(**{'indent'       : _ws_text['indent'], 
-                                                                                                                              'name'         : abbr2name(dispatchable_obj.abbreviation),
-                                                                                                                              'detail'       : dispatchable_obj.description.detail,
-                                                                                                                              'brief'        : dispatchable_obj.description.brief,
-                                                                                                                              'abbreviation' : dispatchable_obj.description.abbreviation
-                                                                                                                              }))
-            cfile.write('{indent}{name}_handle = create_dissector_handle(dissect_{name}, proto_{name});\n'.format(**{'indent':_ws_text['indent'], 'name':abbr2name(dispatchable_obj.abbreviation)}))
-            if len(namespace['fields']):
-               cfile.write('{indent}proto_register_field_array(proto_{name}, hf);\n'.format(**{'indent':_ws_text['indent'], 'name':abbr2name(dispatchable_obj.abbreviation)}))
-            cfile.write('{indent}proto_register_subtree_array(proto_{name}, ett, array_length(ett));\n'.format(**{'indent':_ws_text['indent'], 'name':abbr2name(dispatchable_obj.abbreviation)}))
-            for table in namespace['tables'].values():
-               field = dispatchable_obj.getField(table.field)
-               cfile.write('{indent}register_dissector_table("{field}", "{descr}", FT_{ftype}, BASE_{btype});\n'.format(indent = _ws_text['indent'],
-                                                                                                                        field  = table.field,
-                                                                                                                        descr  = field.description.brief,
-                                                                                                                        ftype  = ws_field_ftype(field),
-                                                                                                                        btype  = ws_field_basetype(field)
-                                                                                                                       ))
-            cfile.write('}\n\n')
+            write_register_fxn(dispatchable_obj, cfile)
             #proto_reg_handoff...
-            cfile.write('{decl}\n{{\n'.format(**{'decl':_ws_text['handoff_fxn_decl'].format(name=abbr2name(dispatchable_obj.abbreviation))}))
-            handles = set()
-            for join in namespace['joins'].values():
-               for r in join:
-                  handles.add('handle_{name}'.format(name = abbr2name(r.parent.abbreviation)))
-            for h in handles:
-                  cfile.write('{indent}dissector_handle_t {handle};\n'.format(indent = _ws_text['indent'], handle = h))
-            cfile.write('{indent}dissector_handle_t handle_{name} = find_dissector("{name}");\n'.format(indent = _ws_text['indent'], name=abbr2name(dispatchable_obj.abbreviation)))
-            for join in namespace['joins'].values():
-               for r in join:
-                  cfile.write('{indent}handle_{name} = find_dissector("{name}");\n'.format(indent = _ws_text['indent'], name=abbr2name(r.parent.abbreviation)))
-                  
-                  cfile.write('{indent}dissector_add("{table}", {value}, handle_{name});\n'.format(indent = _ws_text['indent'],
-                                                                                                   table  = r.table,
-                                                                                                   value  = r.value,
-                                                                                                   name   = abbr2name(r.parent.abbreviation)))
-            # /* @todo register other dissectors against own tables */
-            cfile.write('}\n')
+            write_handoff_fxn(dispatchable_obj, cfile)

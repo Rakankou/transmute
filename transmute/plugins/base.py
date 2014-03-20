@@ -899,6 +899,16 @@ class Message(Parsable, Dispatchable):
       if self.trailer is not None:
          pos = pos | self.trailer.position
       return pos
+   
+   def hasFields(self):
+      rv = False
+      if self.header is not None:
+         rv = self.header.hasFields()
+      if not rv and self.trailer is not None:
+         rv = self.trailer.hasFields()
+      if not rv and len(self._fields) > 0:
+         rv = True
+      return rv
 
 class Header(Message):
    def __init__(self):
@@ -1054,6 +1064,14 @@ class Protocol(Parsable, Dispatchable):
    @property
    def position(self):
       return Position.create(0, -1)
+   
+   def hasFields(self):
+      rv = False
+      if self.header is not None:
+         rv = self.header.hasFields()
+      if not rv and self.trailer is not None:
+         rv = self.trailer.hasFields()
+      return rv
             
 
 def register(args_parser, xml_parser):
