@@ -130,7 +130,7 @@ _ws_text = { 'header_comment'    : "/* \n * File: {{filename}}\n * Description: 
              'handoff_fxn_decl'  : "void proto_reg_handoff_{name}(void)",
              'handoff_fxn_vars'  : "dissector_handle_t {name}_handle;\n",
              'indent'            : "   ",
-             'header_field'      : '''{indent}{{&hf_{name},\n{indent}{indent}{{"{brief}", "{abbreviation}", FT_{ftype}, BASE_{btype}, {VALS}, {mask},\n{indent}{indent}{indent}"{detail}", HFILL}}}},\n''',
+             'header_field'      : '''{indent}{{&hf_{name},\n{indent}{indent}{{"{brief}", "{abbreviation}", FT_{ftype}, BASE_{btype}, {VALS}, {mask},\n{indent}{indent}{indent}"{detail}", HFILL}}}}''',
            }
 
 _ws_ftypes = {'undecoded'         : 'NONE',
@@ -272,7 +272,6 @@ def write_dissect_fxn(dispatchable_obj, cfile):
                                                                                                                              length = f.position.chunklength,
                                                                                                                              offset = f.position.index
                                                                                                                             ))
-         #@todo do bitlength items need to be added differently?
    if ws_has_section(dispatchable_obj, 'messages'):
       cfile.write('{indent}value = tvb_length(tvb);\n'.format(indent = _ws_text['indent']))
       if ws_has_section(dispatchable_obj, 'header'):
@@ -301,19 +300,18 @@ def write_dissect_fxn(dispatchable_obj, cfile):
 def write_register_fxn(dispatchable_obj, cfile):
    cfile.write('{decl}\n{{\n'.format(**{'decl':_ws_text['register_fxn_decl'].format(name=abbr2name(dispatchable_obj.abbreviation))}))
    if dispatchable_obj.hasFields():
-      cfile.write('{indent}static hf_register_info hf[] = {{\n'.format(**{'indent':_ws_text['indent']}))
+      cfile.write('{indent}static hf_register_info hf[] = {{'.format(**{'indent':_ws_text['indent']}))
+      header_fields = ''
       if ws_has_section(dispatchable_obj, 'header'):
-         for f in dispatchable_obj.header.fields.values():
-            cfile.write(ws_header_field(f))
+         header_fields = ',\n'.join([header_fields, ',\n'.join(ws_header_field(f) for f in dispatchable_obj.header.fields.values())])
       if ws_has_section(dispatchable_obj, 'fields'):
-         for f in dispatchable_obj.fields.values():
-            cfile.write(ws_header_field(f))
+         header_fields = ',\n'.join([header_fields, ',\n'.join(ws_header_field(f) for f in dispatchable_obj.fields.values())])
       if ws_has_section(dispatchable_obj, 'trailer'):
-         for f in dispatchable_obj.trailer.fields.values():
-            cfile.write(ws_header_field(f))
+         header_fields = ',\n'.join([header_fields, ',\n'.join(ws_header_field(f) for f in dispatchable_obj.trailer.fields.values())])
       if isinstance(dispatchable_obj, Message):
-         cfile.write(ws_header_field(dispatchable_obj))
-      cfile.write('{indent}}};\n'.format(**{'indent':_ws_text['indent']}))
+         header_fields = ',\n'.join([header_fields, ws_header_field(dispatchable_obj)])
+      cfile.write(header_fields.lstrip(','))
+      cfile.write('\n{indent}}};\n'.format(**{'indent':_ws_text['indent']}))
    cfile.write('{indent}static gint *ett[] = {{\n'.format(**{'indent':_ws_text['indent']}))
    cfile.write('{indent}{indent}&ett_{ett}\n'.format(**{'indent':_ws_text['indent'], 'ett':abbr2name(dispatchable_obj.abbreviation)}))
    if ws_has_section(dispatchable_obj, 'header'):
@@ -362,11 +360,220 @@ def write_handoff_fxn(dispatchable_obj, cfile):
                                                                                        table  = j.table,
                                                                                        value  = j.value,
                                                                                        name   = abbr2name(j.parent.abbreviation)))
-   # /* @todo register other dissectors against own tables */
    cfile.write('}\n\n')
    if ws_has_section(dispatchable_obj, 'messages'):
       for m in dispatchable_obj.messages.values():
          write_handoff_fxn(m, cfile)
+
+def write_cmake_file(folder, dispatchable_obj):
+   with open(os.path.join(folder, 'CMakeLists.txt'), 'w') as cmakefile:
+      cmakefile.write('\n'.join(['# This file automatically generated using Transmute',
+                                 'set(DISSECTOR_SRC',
+                                 '\tpacket-{}.c'.format(dispatchable_obj.abbreviation),
+                                 ')',
+                                 '',
+                                 'set(PLUGIN_FILES',
+                                 '\tplugin.c',
+                                 '\t${PLUGIN_FILES}',
+                                 ')',
+                                 '',
+                                 'set(CLEAN_FILES',
+                                 '\t${PLUGIN_FILES}',
+                                 ')',
+                                 '',
+                                 'if (WERROR)',
+                                 '\tset_source_files_properties(',
+                                 '\t\t${CLEAN_FILES}',
+                                 '\t\tPROPERTIES',
+                                 '\t\tCOMPILE_FLAGS -Werror',
+                                 '\t)',
+                                 'endif()',
+                                 '',
+                                 'include_directories(${CMAKE_CURRENT_SOURCE_DIR})',
+                                 '',
+                                 'register_dissector_files(plugin.c',
+                                 '\tplugin',
+                                 '\t${DISSECTOR_SRC}',
+                                 ')',
+                                 '',
+                                 'add_library({} ${{LINK_MODE_MODULE}}'.format(dispatchable_obj.abbreviation),
+                                 '\t${PLGUIN_FILES}',
+                                 ')',
+                                 'set_target_properties({} PROPERTIES PREFIX "")'.format(dispatchable_obj.abbreviation),
+                                 'set_target_properties({} PROPERTIES LINK_FLAGS "${{WS_LINK_FLAGS}}")'.format(dispatchable_obj.abbreviation),
+                                 '',
+                                 'target_link_libraries({} epan)'.format(dispatchable_obj.abbreviation),
+                                 '',
+                                 'install(TARGETS {}'.format(dispatchable_obj.abbreviation),
+                                 '\tLIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}/@CPACK_PACKAGE_NAME@/plugins/${CPACK_PACKAGE_VERSION} NAMELINK_SKIP',
+                                 '\tRUNTIME DESTINATION ${CMAKE_INSTALL_LIBDIR}/@CPACK_PACKAGE_NAME@/plugins/${CPACK_PACKAGE_VERSION}',
+                                 '\tARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}/@CPACK_PACKAGE_NAME@/plugins/${CPACK_PACKAGE_VERSION}',
+                                 ')',
+                                 '']
+                     ))
+   
+def write_moduleinfo_file(folder, dispatchable_obj):
+   with open(os.path.join(folder, 'moduleinfo.nmake'), 'w') as mfile:
+      mfile.write('\n'.join(['# This file automatically generated using Transmute',
+                             'PACKAGE={}'.format(dispatchable_obj.abbreviation),
+                             'MODULE_VERSION_MAJOR=0',
+                             'MODULE_VERSION_MINOR=0',
+                             'MODULE_VERSION_MICRO=0',
+                             'MODULE_VERSION_EXTRA=0',
+                             'MODULE_VERSION=$(MODULE_VERSION_MAJOR).$(MODULE_VERSION_MINOR).$(MODULE_VERSION_MICRO).$(MODULE_VERSION_EXTRA)',
+                             'RC_MODULE_VERSION=$(MODULE_VERSION_MAJOR),$(MODULE_VERSION_MINOR),$(MODULE_VERSION_MICRO),$(MODULE_VERSION_EXTRA)',
+                             '']
+                 ))
+
+def write_makefile_common(folder, dispatchable_obj):
+   with open(os.path.join(folder, 'Makefile.common'), 'w') as mfile:
+      mfile.write('\n'.join(['# This file automatically generated using Transmute',
+                             'PLUGIN_NAME = {}'.format(dispatchable_obj.abbreviation),
+                             '',
+                             'NONGENERATED_REGISTER_C_FILES = \\',
+                             '\tpacket-{}.c'.format(dispatchable_obj.abbreviation),
+                             '',
+                             'NONGENERATED_C_FILES = \\',
+                             '\t$(NONGENERATED_REGISTER_C_FILES)',
+                             '',
+                             'CLEAN_HEADER_FILES = \\',
+                             '\tpacket-{}.c'.format(dispatchable_obj.abbreviation),
+                             '',
+                             'HEADER_FILES = \\',
+                             '\tpacket-{}.h'.format(dispatchable_obj.abbreviation),
+                             '',
+                             'include ../Makefile.common.inc',
+                             '']
+                 ))
+
+def write_makefile_am(folder, dispatchable_obj):
+   with open(os.path.join(folder, 'Makefile.am'), 'w') as mfile:
+      mfile.write('\n'.join(['# This file automatically generated using Transmute',
+                             'include $(top_srcdir)/Makefile.am.inc',
+                             '',
+                             'AM_CPPFLAGS = -I$(top_srcdir)',
+                             '',
+                             'include Makefile.common',
+                             '',
+                             'if HAVE_WARNINGS_AS_ERRORS',
+                             'AM_CFLAGS = -Werror',
+                             'endif',
+                             '',
+                             'plugindir = @plugindir@',
+                             '',
+                             'plugin_LTLIBRARIES = {}.la'.format(dispatchable_obj.abbreviation),
+                             '',
+                             '{}_la_SOURCES = \\'.format(dispatchable_obj.abbreviation),
+                             '\tplugin.c \\',
+                             '\tmoduleinfo.h \\',
+                             '\t$(SRC_FILES)\t\\',
+                             '\t$(HEADER_FILES)',
+                             '',
+                             '{}_la_LDFLAGS = -module -avoid-version',
+                             '{}_la_LIBADD = @PLUGIN_LIBS@',
+                             '',
+                             'LIBS =',
+                             '',
+                             'plugin.c: $(REGISTER_SRC_FILES) Makefile.common $(top_srcdir)/tools/make-dissector-reg \\',
+                             '    $(top_srcdir)/tools/make-dissector-reg.py',
+                             '\t@if test -n "$(PYTHON)"; then \\',
+                             '\t\techo Making plugin.c with python ; \\',
+                             '\t\t$(PYTHON) $(top_srcdir)/tools/make-dissector-reg.py $(srcdir) \\',
+                             '\t\t    plugin $(REGISTER_SRC_FILES) ; \\',
+                             '\telse \\',
+                             '\t\techo Making plugin.c with shell script ; \\',
+                             '\t\t$(top_srcdir)/tools/make-dissector-reg $(srcdir) \\',
+                             '\t\t    $(plugin_src) plugin $(REGISTER_SRC_FILES) ; \\',
+                             '\tfi',
+                             '',
+                             '',
+                             'CLEANFILES = \\',
+                             '\t{} \\'.format(dispatchable_obj.abbreviation),
+                             '\t*~',
+                             '',
+                             'MAINTAINERCLEANFILES = \\',
+                             '\tMakefile.in\t\\',
+                             '\tplugin.c',
+                             '',
+                             'EXTRA_DIST = \\',
+                             '\tMakefile.common\t\t\\',
+                             '\tMakefile.nmake\t\t\\',
+                             '\tmoduleinfo.nmake\t\\',
+                             '\tplugin.rc.in\t\t\\',
+                             '\tCMakeLists.txt',
+                             '',
+                             'checkapi:',
+                             '\t$(PERL) $(top_srcdir)/tools/checkAPIs.pl -g abort -g termoutput -build \\',
+                             '\t\t$(CLEAN_SRC_FILES) $(CLEAN_HEADER_FILES)',
+                             '']
+                 ))
+
+def write_makefile_nmake(folder, dispatchable_obj):
+   with open(os.path.join(folder, 'Makefile.nmake'), 'w') as mfile:
+      mfile.write('\n'.join(['# This file automatically generated using Transmute',
+                             'include ..\\..\\config.nmake',
+                             'include ..\\..\\Makefile.nmake.inc',
+                             '',
+                             'include moduleinfo.nmake',
+                             '',
+                             'include Makefile.common',
+                             '',
+                             'CFLAGS=$(WARNINGS_ARE_ERRORS) $(STANDARD_CFLAGS) \\',
+                             '\t/I../.. $(GLIB_CFLAGS) \\',
+                             '\t/I$(PCAP_DIR)\include',
+                             '',
+                             '.c.obj::',
+                             '\t$(CC) $(CFLAGS) -Fd.\\ -c $<',
+                             '',
+                             'LDFLAGS = $(PLUGIN_LDFLAGS)',
+                             '',
+                             '!IFDEF ENABLE_LIBWIRESHARK',
+                             'LINK_PLUGIN_WITH=..\\..\\epan\\libwireshark.lib',
+                             'CFLAGS=$(CFLAGS)',
+                             '',
+                             'OBJECTS = $(C_FILES:.c=.obj) $(CPP_FILES:.cpp=.obj) plugin.obj',
+                             '',
+                             'RESOUCE=$(PLUGIN_NAME).res',
+                             '',
+                             'all: $(PLUGIN_NAME).res',
+                             '',
+                             '$(PLUGIN_NAME).rc : moduleinfo.nmake',
+                             '\tsed -e s/@PLUGIN_NAME@/$(PLUGIN_NAME)/ \\',
+                             '\t-e s/@RC_MODULE_VERSION@/$(RC_MODULE_VERSION)/ \\',
+                             '\t-e s/@RC_VERSION@/$(RC_VERSION)/ \\',
+                             '\t-e s/@MODULE_VERSION@/$(MODULE_VERSION)/ \\',
+                             '\t-e s/@PACKAGE@/$(PACKAGE)/ \\',
+                             '\t-e s/@VERSION@/$(VERSION)/ \\',
+                             '\t-e s/@MSVC_VARIANT@/$(MSVC_VARIANT)/ \\',
+                             '\t< plugin.rc.in > $@',
+                             '$(PLUGIN_NAME).dll $(PLUGIN_NAME).exp $(PLUGIN_NAME).lib : $(OBJECTS) $(LINK_PLUGIN_WITH) $(RESOURCE)',
+                             'link -dll /out:$(PLUGIN_NAME).dll $(LDFLAGS) $(OBJECTS) $(LINK_PLUGIN_WITH) \\',
+                             '$(GLIB_LIBS) $(RESOURCE)',
+                             '!IFDEF PYTHON',
+                             'plugin.c: $(REGISTER_SRC_FILES) moduleinfo.h Makefile.common ../../tools/make-dissector-reg.py',
+                             '\t@echo Making plugin.c (using python)',
+                             '\t@$(PYTHON) "../../tools/make-dissector-reg.py" . plugin $(REGISTER_SRC_FILES)',
+                             '!ELSE',
+                             'plugin.c: $(REGISTER_SRC_FILES) moduleinfo.h Makefile.common ../../tools/make-dissector-reg',
+                             '\t@echo Making plugin.c (using sh)',
+                             '\t@$(SH) ../../tools/make-dissector-reg . plugin $(REGISTER_SRC_FILES)',
+                             '!ENDIF',
+                             '',
+                             '!ENDIF',
+                             'clean:',
+                             '\trm -f $(OBJECTS) $(RESOURCE) plugin.c *.pdb *.sbr \\',
+                             '\t    $(PLUGIN_NAME).dll $(PLUGIN_NAME).dll.manifest $(PLUGIN_NAME).lib \\',
+                             '\t    $(PLUGIN_NAME).exp $(PLUGIN_NAME).rc',
+                             '',
+                             'distclean: clean',
+                             '',
+                             'maintaner-clean: distclean',
+                             '',
+                             'checkapi:',
+                             '\t$(PERL) ../../tools/checkAPIs.pl -g abort -g termoutput -build \\',
+                             '\t\t$(CLEAN_SRC_FILES) $(CLEAN_HEADER_FILES)',
+                             '']
+                 ))
 
 def dispatch_node(dispatchable_obj, namespace):
    if   dispatchable_obj.getTag() == Field.tag():
@@ -409,8 +616,6 @@ def dispatch_node(dispatchable_obj, namespace):
    if ws_has_section(dispatchable_obj, 'trailer'):
       namespace['trees'][dispatchable_obj.trailer.abbreviation] = dispatchable_obj.trailer
    
-   pass #@todo any other objects that need to be added to the namespace
-   
    for child in dispatchable_obj.children:
       dispatch_node(child, namespace)
 
@@ -447,23 +652,35 @@ def dispatch(dispatchable_obj):
             cfile.write(_ws_text['source_includes'].format(name = dispatchable_obj.abbreviation))
             
             cfile.write('static int proto_{name} = -1;\n'.format(name = abbr2name(dispatchable_obj.abbreviation)))
+            for m in dispatchable_obj.messages.values():
+               cfile.write('static int proto_{name} = -1;\n'.format(name = abbr2name(m.abbreviation)))
             
+            cfile.write('/* Header Fields */\n')
             for field in namespace['fields'].values():
                cfile.write('static int hf_{hf} = -1;\n'.format(hf=abbr2name(field.abbreviation)))
+            cfile.write('\n')
             
+            cfile.write('/* Trees */\n')
             for tree in namespace['trees'].values():
                cfile.write('static gint ett_{ett} = -1;\n'.format(ett=abbr2name(tree.abbreviation)))
+            cfile.write('\n')
             
+            cfile.write('/* Enumerations */ \n')
             for enum in namespace['enums'].values():
-               hfile.write(enum);
+               hfile.write(enum)
+            cfile.write('\n')
             
+            cfile.write('/* Value Strings */\n')
             for vs in namespace['value_strings'].values():
                hfile.write(var_decl(vs))
                cfile.write(vs)
+            cfile.write('\n')
             
+            cfile.write('/* True/False Strings */\n')
             for tfs in namespace['true_false_strings'].values():
                hfile.write(var_decl(tfs))
                cfile.write(tfs)
+            cfile.write('\n')
             
             hfile.write('#endif /* {include_guard} */\n'.format(include_guard = ws_include_guard(hfile)))
             
@@ -473,3 +690,9 @@ def dispatch(dispatchable_obj):
             write_register_fxn(dispatchable_obj, cfile)
             #proto_reg_handoff...
             write_handoff_fxn(dispatchable_obj, cfile)
+      write_cmake_file(folder, dispatchable_obj)
+      write_moduleinfo_file(folder, dispatchable_obj)
+      write_makefile_common(folder, dispatchable_obj)
+      write_makefile_am(folder, dispatchable_obj)
+      write_makefile_nmake(folder, dispatchable_obj)
+      
