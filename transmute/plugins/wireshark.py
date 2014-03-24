@@ -413,13 +413,23 @@ def write_cmake_file(folder, dispatchable_obj):
                      ))
    
 def write_moduleinfo_file(folder, dispatchable_obj):
+   vinfo = dispatchable_obj.version.data
+   for k in ['major', 'minor', 'micro', 'extra']:
+      try:
+         int(vinfo[k])
+      except KeyError as ke:
+         _logger.info('<{}> {} version is missing {}, using default'.format(dispatchable_obj.getTag(), dispatchable_obj.name, ke))
+         vinfo[k] = '0'
+      except ValueError as ve:
+         _logger.info('<{}> {} version is missing {}, using default'.format(dispatchable_obj.getTag(), dispatchable_obj.name, ve))
+         vinfo[k] = '0'
    with open(os.path.join(folder, 'moduleinfo.nmake'), 'w') as mfile:
       mfile.write('\n'.join(['# This file automatically generated using Transmute',
                              'PACKAGE={}'.format(dispatchable_obj.abbreviation),
-                             'MODULE_VERSION_MAJOR=0',
-                             'MODULE_VERSION_MINOR=0',
-                             'MODULE_VERSION_MICRO=0',
-                             'MODULE_VERSION_EXTRA=0',
+                             'MODULE_VERSION_MAJOR={}'.format(dispatchable_obj.version.data['major']),
+                             'MODULE_VERSION_MINOR={}'.format(dispatchable_obj.version.data['minor']),
+                             'MODULE_VERSION_MICRO={}'.format(dispatchable_obj.version.data['micro']),
+                             'MODULE_VERSION_EXTRA={}'.format(dispatchable_obj.version.data['extra']),
                              'MODULE_VERSION=$(MODULE_VERSION_MAJOR).$(MODULE_VERSION_MINOR).$(MODULE_VERSION_MICRO).$(MODULE_VERSION_EXTRA)',
                              'RC_MODULE_VERSION=$(MODULE_VERSION_MAJOR),$(MODULE_VERSION_MINOR),$(MODULE_VERSION_MICRO),$(MODULE_VERSION_EXTRA)',
                              '']

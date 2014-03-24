@@ -11,7 +11,7 @@ __all__  = ["register", "dispatch", "Protocol",  "Description",
             "Brief",    "Detail",   "Values",    "Value",
             "Message",  "Field",    "Position",  "Bits",
             "Chunks",   "Weight",                "Constants",
-            "Header",   "Trailer"
+            "Header",   "Trailer",  "Version"
            ]
 
 _logger  = logging.getLogger('transmute.base')
@@ -926,6 +926,56 @@ class Trailer(Message):
    def tag():
       return ':'.join([_prefix, 'trailer']).lstrip(':')
 
+class Version(Parsable, Dispatchable):
+   __components = ['major','minor','micro','extra']
+   
+   def __init__(self):
+      super().__init__()
+      self.log = logging.getLogger('transmute.base.Version')
+      self._v = dict()
+   
+   def tag():
+      return ':'.join([_prefix, 'version']).lstrip(':')
+   
+   def Start(self, attrs, evt_stream, node, parser):
+      super().Start(attrs, evt_stream, node, parser)
+      self._v = dict()
+      for slice in Version.__components:
+         try:
+            self._v[slice] = attrs[slice]
+         except KeyError as ke:
+            self.log.info('{tag} missing {slice} component, using empty'.format(tag = self.getTag(), slice = slice))
+            self._v[slice] = ''
+   
+   def End(self):
+      pass #version has no complex end tasks
+   
+   def Cdata(self, data):
+      pass #version has no cdata
+   
+   def Child(self, child):
+      super().Child(child)
+      pass #version has no child nodes
+   
+   def Validate(self, parent):
+      super().Validate(parent)
+      if len(self._v) == 0:
+         raise ValidationError("<{}> with no data".format(self.getTag()))
+   
+   @property
+   def data(self):
+      return dict((k, self._v[k]) for k in Version.__components)
+   
+   @staticmethod
+   def create(components):
+      v = Version()
+      for slice in Version.__components:
+         try:
+            v._v[slice] = components[slice]
+         except KeyError as ke:
+            v._v[slice] = ''
+      return v
+
 class Protocol(Parsable, Dispatchable):
    def __init__(self):
       super().__init__()
@@ -938,6 +988,7 @@ class Protocol(Parsable, Dispatchable):
       self.bit0        = None
       self.header      = None
       self.trailer     = None
+      self._version    = None
    
    def tag():
       return ':'.join([_prefix, 'protocol']).lstrip(':')
@@ -976,6 +1027,7 @@ class Protocol(Parsable, Dispatchable):
       self.description = None
       self.header      = None
       self.trailer     = None
+      self._version    = None
             
       for element in parser.parseString(parser.getSubXml(evt_stream, node)):
          self.Child(element)
@@ -1006,6 +1058,11 @@ class Protocol(Parsable, Dispatchable):
          self.header = child
       elif child.getTag() == Trailer.tag():
          self.trailer = child
+      elif child.getTag() == Version.tag():
+         if self._version is None:
+            self._version = child
+         else:
+            raise ParseError("<{}> {} has multiple <{}>".format(self.getTag(), self.name, Version.tag()))
    
    def Validate(self, parent):
       super().Validate(parent)
@@ -1013,6 +1070,9 @@ class Protocol(Parsable, Dispatchable):
          self.description.Validate(self)
       else:
          raise ValidationError("{} missing <{}>.".format(self.getTag(), Description.tag()))
+      if self._version is None:
+         self._version = Version.Create({'major':1, 'minor':0})
+         self.log.info("<{}> has no version, using default".format(self.getTag()))
       if any(map(lambda combo: self.messages[combo[0]].abbreviation == self.messages[combo[r]].abbreviation, itertools.combinations(self.messages.keys(), 2))):
          raise ValidationError("<{}> '{}' has repeated {} abbreviations".format(self.getTag(), self.description.name, Message.tag()))
       self.log.info("Validation complete for {} '{}'".format(self.getTag(), self.name))
@@ -1072,10 +1132,15 @@ class Protocol(Parsable, Dispatchable):
       if not rv and self.trailer is not None:
          rv = self.trailer.hasFields()
       return rv
+   
+   @property
+   def version(self):
+      return self._version
             
 
 def register(args_parser, xml_parser):
    for parsable in [Protocol,
+                    Version,
                     Description,
                        Brief,
                        Detail,
