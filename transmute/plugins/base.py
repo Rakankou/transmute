@@ -18,6 +18,8 @@ _logger  = logging.getLogger('transmute.base')
 
 _prefix = ''
 
+_anon_counter = itertools.count(0,1)
+
 class Constants:
    chunksize = {"8" : 8, "16" : 16, "32" : 32}
    bit0      = {"MSb" : object(), "LSb" : object()}
@@ -226,7 +228,7 @@ class Value(Parsable, Dispatchable):
    @ival.setter
    def ival(self, data):
       try:
-         int(data)
+         int(data, 0)
       except ValueError:
          raise ParseError("<{}> invalid int attribute".format(self.getTag()))
       else:
@@ -285,6 +287,8 @@ class Values(Parsable, Dispatchable):
    
    @property
    def name(self):
+      if self._name is None:
+         self._name = 'anonymous_{}'.format(next(_anon_counter))
       return self._name
    
    @name.setter
@@ -509,11 +513,15 @@ class Position(Parsable, Dispatchable):
    
    @property
    def bitmask(self):
-      return int(('F' * (self.chunksize / 4)) * len(self._chunks), 16) if self._chunks is not None else self._bits.buildMask(self.chunksize, self.bit0)
+      return int(('F' * (self.chunksize // 4)) * len(self._chunks), 16) if self._chunks is not None else self._bits.buildMask(self.chunksize, self.bit0)
    
    @property
    def chunklength(self):
       return self._chunks.length if self._chunks is not None else (self.bitlength // self.chunksize + (1 if self.bitlength % self.chunksize else 0))
+   
+   @property
+   def bitoffset(self):
+      return self.index * self.chunksize + (self.bitstart if self.bit0 is Constants.bit0['LSb'] else self.chunksize - self.bitstart)
    
    def __or__(self, other):
       if not isinstance(other, Position):
@@ -677,6 +685,7 @@ class Field(Parsable, Dispatchable):
       self.position      = None
       self._endian       = None
       self._values       = None
+      self._weight       = None
       self.ftype_handler = Field.FTypes['undecoded']('', {})
       self.ftype         = 'undecoded'
       
@@ -689,6 +698,7 @@ class Field(Parsable, Dispatchable):
       self.position      = None
       self._endian       = None
       self._values       = None
+      self._weight       = None
       self.ftype_handler = Field.FTypes['undecoded']('', {})
       self.ftype         = 'undecoded'
       try:
@@ -773,6 +783,11 @@ class Field(Parsable, Dispatchable):
    def values(self):
       if self._values is not None:
          return self._values
+   
+   @property
+   def weight(self):
+      if self._weight is not None:
+         return self._weight
 
 class Message(Parsable, Dispatchable):
    def __init__(self):

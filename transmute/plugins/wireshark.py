@@ -33,10 +33,11 @@ def force_folder(path):
          os.mkdir(path)
       except OSError as ose:
          raise ValueError("Cannot create directory '{}'".format(path))
+   return path
 
 def folder_type(path):
    try:
-      force_folder(path)
+      return force_folder(path)
    except ValueError as ve:
       raise ArgumentTypeError(ve)
 
@@ -207,7 +208,7 @@ def ws_header_field(f):
                                                        'vname': f.values.name if f.values.name else abbr2name(f.description.abbreviation)
                                                       })
    if isinstance(f, Field):
-      mask = hex(f.position.bitmask)
+      mask = hex(f.position.bitmask) #@TODO fixme (always gives 0)
    
    return '{indent}{s}'.format(indent = _ws_text['indent'],
                                s      = _ws_text['header_field'].format(**attrs))
@@ -266,12 +267,27 @@ def write_dissect_fxn(dispatchable_obj, cfile):
       cfile.write('{indent}dissect_{name}(tvb, pinfo, pTree);\n'.format(name = abbr2name(dispatchable_obj.header.abbreviation), indent = _ws_text['indent']))
    if ws_has_section(dispatchable_obj, 'fields'):
       for f in dispatchable_obj.fields.values():
-         cfile.write('{indent}proto_tree_add_item(pTree, hf_{name}, tvb, {offset}, {length}, ENC_{endian}_ENDIAN);\n'.format(indent = _ws_text['indent'],
-                                                                                                                             name   = abbr2name(f.description.abbreviation),
-                                                                                                                             endian = "BIG" if f.endian == Constants.endian['big'] else "LITTLE",
-                                                                                                                             length = f.position.chunklength,
-                                                                                                                             offset = f.position.index
-                                                                                                                            ))
+         if f.ftype in ('weighted', 'unsigned weighted'):
+            cfile.write('{indent}value = tvb_get_bits32(tvb, {bitoffs}, {bitlen}, {enc});\n'.format(indent  = _ws_text['indent'],
+                                                                                                    bitoffs = f.position.bitstart + (f.position.chunksize * f.position.index),
+                                                                                                    bitlen  = f.position.bitlength,
+                                                                                                    enc     = "ENC_LITTLE_ENDIAN" if f.endian == Constants.endian['little'] else "ENC_BIG_ENDIAN"
+                                                                                                   ))
+            cfile.write('{indent}proto_tree_float_bits_format_value(pTree, hf_{name}, tvb, {bitoffset}, {bitlength}, "%f", ((float)(value * {scale})) + ((float){voffset}));\n'.format(indent    = _ws_text['indent'],
+                                                                                                                                                                                       name      = abbr2name(f.description.abbreviation),
+                                                                                                                                                                                       endian    = "BIG" if f.endian == Constants.endian['big'] else "LITTLE",
+                                                                                                                                                                                       bitlength = f.position.bitlength,
+                                                                                                                                                                                       bitoffset = f.position.bitoffset,
+                                                                                                                                                                                       scale     = f.weight.lsb,
+                                                                                                                                                                                       voffset   = f.weight.offset
+                                                                                                                                                                                      ))
+         else:
+            cfile.write('{indent}proto_tree_add_item(pTree, hf_{name}, tvb, {offset}, {length}, ENC_{endian}_ENDIAN);\n'.format(indent = _ws_text['indent'],
+                                                                                                                                name   = abbr2name(f.description.abbreviation),
+                                                                                                                                endian = "BIG" if f.endian == Constants.endian['big'] else "LITTLE",
+                                                                                                                                length = f.position.chunklength,
+                                                                                                                                offset = f.position.index
+                                                                                                                               ))
    if ws_has_section(dispatchable_obj, 'messages'):
       cfile.write('{indent}value = tvb_length(tvb);\n'.format(indent = _ws_text['indent']))
       if ws_has_section(dispatchable_obj, 'header'):
@@ -292,9 +308,10 @@ def write_dissect_fxn(dispatchable_obj, cfile):
                                                                                                  enc     = "ENC_LITTLE_ENDIAN" if tfield.endian == Constants.endian['little'] else "ENC_BIG_ENDIAN"
                                                                                                 ))
          cfile.write('{indent}if(pTable)\n{indent}{{\n{indent}{indent}dissector_try_uint(pTable, value, pinfo, tree);\n{indent}}}\n'.format(indent = _ws_text['indent']))
-   #     weighted use proto_tree_add_double_format_value
    if ws_has_section(dispatchable_obj, 'trailer'):
-      cfile.write('{indent}dissect_{name}(tvb, pinfo, pTree);\n'.format(name = abbr2name(dispatchable_obj.trailer)))
+      cfile.write('{indent}dissect_{name}(tvb, pinfo, pTree);\n'.format(indent = _ws_text['indent'],
+                                                                        name   = abbr2name(dispatchable_obj.trailer.abbreviation)
+                                                                       ))
    cfile.write('}\n\n')
 
 def write_register_fxn(dispatchable_obj, cfile):
@@ -695,10 +712,13 @@ def dispatch(dispatchable_obj):
             hfile.write('#endif /* {include_guard} */\n'.format(include_guard = ws_include_guard(hfile)))
             
             #dissect_...
+            cfile.write('/* dissect_ Functions */\n')
             write_dissect_fxn(dispatchable_obj, cfile)
             #proto_register...
+            cfile.write('/* proto_register_ Functions */\n')
             write_register_fxn(dispatchable_obj, cfile)
             #proto_reg_handoff...
+            cfile.write('/* proto_reg_handoff_ Functions */\n')
             write_handoff_fxn(dispatchable_obj, cfile)
       write_cmake_file(folder, dispatchable_obj)
       write_moduleinfo_file(folder, dispatchable_obj)
