@@ -207,8 +207,14 @@ def ws_header_field(f):
       attrs['VALS'] = 'VALS({vstr}_{vname})'.format(**{'vstr' : 'tfs' if is_tfs(f.values) else 'vs',
                                                        'vname': f.values.name if f.values.name else abbr2name(f.description.abbreviation)
                                                       })
-   if isinstance(f, Field):
-      mask = hex(f.position.bitmask) #@TODO fixme (always gives 0)
+   if isinstance(f, Field) and attrs['ftype'] != 'NONE':
+      attrs['mask'] = hex(f.position.bitmask)
+      if((attrs['ftype'] == 'DOUBLE' and attrs['mask'] == '0xffffffffffffffff') or
+         (attrs['ftype'] == 'FLOAT'  and attrs['mask'] == '0xffffffff'        ) or
+         ('INT32' in attrs['ftype']  and attrs['mask'] == '0xffffffff'        ) or
+         ('INT16' in attrs['ftype']  and attrs['mask'] == '0xffff'            ) or
+         ('INT8'  in attrs['ftype']  and attrs['mask'] == '0xff'              )):
+         attrs['mask'] = 0
    
    return '{indent}{s}'.format(indent = _ws_text['indent'],
                                s      = _ws_text['header_field'].format(**attrs))

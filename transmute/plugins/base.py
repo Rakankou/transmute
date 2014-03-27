@@ -371,14 +371,11 @@ class Bits(Parsable, Dispatchable):
       else:
          mask = 0
          mlen = self._end - self.start + 1
+         outshift,inshift = (operator.rshift,operator.lshift) if bit0 == Constants.bit0['LSb'] else (operator.lshift,operator.rshift)
          if mlen >= 1:
-            mask = int('1' * mlen, 2)
-            shift = operator.lshift if bit0 == Constants.bit0 else operator.rshift
-            if bit0 == Constants.bit0['MSb']:
-               #justify the mask for MSb i.e. 00000111 -> 11100000
-               #this because the shift assumption below is that the 1 string starts at bit0
-               mask = mask << (chunksize - mlen)
-            mask = shift(mask, chunksize - self.start)
+            mask = int('1' * chunksize, 2)
+            mask = outshift(mask, chunksize - mlen)
+            mask = inshift(mask, chunksize - (self.start + mlen))
          return mask
    
    def __len__(self):
@@ -528,23 +525,27 @@ class Position(Parsable, Dispatchable):
          raise NotImplemented("Unusable type '{}' for concatenation with Position type".format(type(other)))
       if self.chunksize != other.chunksize:
          raise NotImplemented("Cannot concatenate Position with different chunk sizes")
+      if self.chunksize is None:
+         raise NotImplemented("Cannot concatenate Position without chunksize")
       npos = Position()
       nck  = Chunks()
+      npos._chunksize = self.chunksize
       npos.index = min(self.index, other.index)
-      terminus = max(self.index  + (self.bitlength  / self.chunksize),
-                     other.index + (other.bitlength / other.chunksize)
+      terminus = max(self.index  + (self.bitlength  // self.chunksize),
+                     other.index + (other.bitlength // other.chunksize)
                     )
       nck.length = max(1, terminus - npos.index)
       npos.Child(nck)
       return npos
    
    @staticmethod
-   def create(index, chunks):
+   def create(index, chunks, chunksize):
       npos = Position()
       nck  = Chunks()
       npos.index = index
       nck.length = chunks
       npos.Child(nck)
+      npos._chunksize = chunksize
       return npos
 
 class Weight(Parsable, Dispatchable):
@@ -855,9 +856,9 @@ class Message(Parsable, Dispatchable):
          self.description.Validate(self)
       else:
          raise ValidationError("{} missing <{}>.".format(self.getTag(), Description.tag()))
-      if any(map(lambda combo: self._fields[combo[0]].abbreviation == self._fields[combo[r]].abbreviation, itertools.combinations(self._fields.keys(), 2))):
+      if any(map(lambda combo: self._fields[combo[0]].abbreviation == self._fields[combo[1]].abbreviation, itertools.combinations(self._fields.keys(), 2))):
          raise ValidationError("<{}> '{}' has repeated {} abbreviations".format(self.getTag(), self.description.name, Field.tag()))
-      if any(map(lambda combo: self._groups[combo[0]].abbreviation == self._groups[combo[r]].abbreviation, itertools.combinations(self._groups.keys(), 2))):
+      if any(map(lambda combo: self._groups[combo[0]].abbreviation == self._groups[combo[1]].abbreviation, itertools.combinations(self._groups.keys(), 2))):
          raise ValidationError("<{}> '{}' has repeated {} abbreviations".format(self.getTag(), self.description.name, Group.tag()))
       if any(map(lambda k: k in self._groups.keys(), self._fields.keys())):
          raise ValidationError("<{}> '{}' has conflicting {} and {} abbreviations".format(self.getTag(), self.description.name, Group.tag(), Field.tag()))
@@ -1138,7 +1139,7 @@ class Protocol(Parsable, Dispatchable):
    
    @property
    def position(self):
-      return Position.create(0, -1)
+      return Position.create(0, -1, self.chunksize)
    
    def hasFields(self):
       rv = False
