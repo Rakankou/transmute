@@ -255,10 +255,13 @@ def write_dissect_fxn(dispatchable_obj, cfile):
                          ]).format(indent = _ws_text['indent'],
                                    name   = abbr2name(dispatchable_obj.abbreviation)
                                   ))
-   
-   cfile.write('{indent}col_set_str(pinfo->cinfo, COL_PROTOCOL, "{name}");\n'.format(indent = _ws_text['indent'],
-                                                                                     name   = dispatchable_obj.description.brief
-                                                                                    ))
+   if not isinstance(dispatchable_obj, (Header, Trailer)):
+      cfile.write('{indent}col_set_str(pinfo->cinfo, COL_PROTOCOL, "{name}{space}");\n'.format(indent = _ws_text['indent'],
+                                                                                               name   = dispatchable_obj.description.name,
+                                                                                               space  = ' ' if isinstance(dispatchable_obj, Protocol) else ''
+                                                                                              ))
+      if isinstance(dispatchable_obj, Protocol):
+         cfile.write('{indent}col_set_fence(pinfo->cinfo, COL_PROTOCOL);\n'.format(indent = _ws_text['indent']))
    cfile.write('{indent}pItem = proto_tree_add_item(   tree, {proto_or_hf}_{name}, tvb, {offset}, {length}, ENC_{endian}_ENDIAN);\n'.format(indent = _ws_text['indent'],
                                                                                                                          name   = abbr2name(dispatchable_obj.abbreviation),
                                                                                                                          endian = "BIG" if dispatchable_obj.endian == Constants.endian['big'] else "LITTLE",
@@ -326,10 +329,12 @@ def write_register_fxn(dispatchable_obj, cfile):
       cfile.write('{indent}static hf_register_info hf[] = {{'.format(**{'indent':_ws_text['indent']}))
       header_fields = ''
       if ws_has_section(dispatchable_obj, 'header'):
+         header_fields = ',\n'.join([header_fields, ws_header_field(dispatchable_obj.header)])
          header_fields = ',\n'.join([header_fields, ',\n'.join(ws_header_field(f) for f in dispatchable_obj.header.fields.values())])
       if ws_has_section(dispatchable_obj, 'fields'):
          header_fields = ',\n'.join([header_fields, ',\n'.join(ws_header_field(f) for f in dispatchable_obj.fields.values())])
       if ws_has_section(dispatchable_obj, 'trailer'):
+         header_fields = ',\n'.join([header_fields, ws_header_field(dispatchable_obj.trailer)])
          header_fields = ',\n'.join([header_fields, ',\n'.join(ws_header_field(f) for f in dispatchable_obj.trailer.fields.values())])
       if isinstance(dispatchable_obj, Message):
          header_fields = ',\n'.join([header_fields, ws_header_field(dispatchable_obj)])
@@ -343,7 +348,8 @@ def write_register_fxn(dispatchable_obj, cfile):
       cfile.write('{indent}{indent}&ett_{ett}\n'.format(**{'indent':_ws_text['indent'], 'ett':abbr2name(dispatchable_obj.trailer.abbreviation)}))
    cfile.write('{indent}}};\n'.format(**{'indent':_ws_text['indent']}))
    cfile.write('{indent}dissector_handle_t handle_{name};\n'.format(**{'indent':_ws_text['indent'], 'name':abbr2name(dispatchable_obj.abbreviation)}))
-   cfile.write('{indent}module_t *module_{name};\n'.format(**{'indent':_ws_text['indent'], 'name':abbr2name(dispatchable_obj.abbreviation)}))
+   #note: the module_t* variables are needed for protocol preferences and other items we don't support yet
+   #cfile.write('{indent}module_t *module_{name};\n'.format(**{'indent':_ws_text['indent'], 'name':abbr2name(dispatchable_obj.abbreviation)}))
    cfile.write('{indent}proto_{name} = proto_register_protocol("{detail}", "{brief}", "{abbreviation}");\n'.format(**{'indent'       : _ws_text['indent'], 
                                                                                                                      'name'         : abbr2name(dispatchable_obj.abbreviation),
                                                                                                                      'detail'       : dispatchable_obj.description.detail,
@@ -646,8 +652,10 @@ def dispatch_node(dispatchable_obj, namespace):
       namespace['joins'][dispatchable_obj.table].append(dispatchable_obj)
    if ws_has_section(dispatchable_obj, 'header'):
       namespace['trees'][dispatchable_obj.header.abbreviation] = dispatchable_obj.header
+      namespace['headers'][dispatchable_obj.header.abbreviation] = dispatchable_obj.header
    if ws_has_section(dispatchable_obj, 'trailer'):
       namespace['trees'][dispatchable_obj.trailer.abbreviation] = dispatchable_obj.trailer
+      namespace['trailers'][dispatchable_obj.trailer.abbreviation] = dispatchable_obj.trailer
    
    for child in dispatchable_obj.children:
       dispatch_node(child, namespace)
@@ -670,7 +678,9 @@ def dispatch(dispatchable_obj):
                     'messages'           : OrderedDict(),
                     'trees'              : OrderedDict(),
                     'tables'             : OrderedDict(),
-                    'joins'              : OrderedDict()
+                    'joins'              : OrderedDict(),
+                    'headers'            : OrderedDict(),
+                    'trailers'           : OrderedDict()
                   }
       
       dispatch_node(dispatchable_obj, namespace)
@@ -691,6 +701,12 @@ def dispatch(dispatchable_obj):
             cfile.write('/* Header Fields */\n')
             for field in namespace['fields'].values():
                cfile.write('static int hf_{hf} = -1;\n'.format(hf=abbr2name(field.abbreviation)))
+            for msg in namespace['messages'].values():
+               cfile.write('static int hf_{hf} = -1;\n'.format(hf=abbr2name(msg.abbreviation)))
+            for hdr in namespace['headers'].values():
+               cfile.write('static int hf_{hf} = -1;\n'.format(hf=abbr2name(hdr.abbreviation)))
+            for trlr in namespace['trailers'].values():
+               cfile.write('static int hf_{hf} = -1;\n'.format(hf=abbr2name(trlr.abbreviation)))
             cfile.write('\n')
             
             cfile.write('/* Trees */\n')

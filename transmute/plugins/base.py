@@ -607,7 +607,7 @@ class Field(Parsable, Dispatchable):
          self.log       = logging.getLogger('transmute.base.Field.FTypeHandler')
          self._field    = fld
          self._typename = typename
-         self._attrs    = dict()
+         self._attrs    = OrderedDict()
       @abstractmethod
       def Start(self, attrs):
          self._attrs    = attrs
@@ -794,10 +794,10 @@ class Message(Parsable, Dispatchable):
    def __init__(self):
       super().__init__()
       self.log          = logging.getLogger('transmute.base.Message')
-      self._values      = dict()
+      self._values      = OrderedDict()
       self.description  = None
-      self._fields      = dict()
-      self._groups      = dict()
+      self._fields      = OrderedDict()
+      self._groups      = OrderedDict()
       self._endian      = None
       self.header       = None
       self.trailer      = None
@@ -807,10 +807,10 @@ class Message(Parsable, Dispatchable):
    
    def Start(self, attrs, evt_stream, node, parser):
       super().Start(attrs, evt_stream, node, parser)
-      self._values      = dict()
+      self._values      = OrderedDict()
       self.description  = None
-      self._fields      = dict()
-      self._groups      = dict()
+      self._fields      = OrderedDict()
+      self._groups      = OrderedDict()
       self._endian      = None
       self.header       = None
       self.trailer      = None
@@ -881,11 +881,11 @@ class Message(Parsable, Dispatchable):
    
    @property
    def values(self):
-      return dict((k,self._values[k]) for k in self._values.keys())
+      return OrderedDict((k,self._values[k]) for k in self._values.keys())
    
    @property
    def fields(self):
-      return dict((k,self._fields[k]) for k in self._fields.keys())
+      return OrderedDict((k,self._fields[k]) for k in self._fields.keys())
    
    @property
    def chunksize(self):
@@ -948,14 +948,14 @@ class Version(Parsable, Dispatchable):
    def __init__(self):
       super().__init__()
       self.log = logging.getLogger('transmute.base.Version')
-      self._v = dict()
+      self._v = OrderedDict()
    
    def tag():
       return ':'.join([_prefix, 'version']).lstrip(':')
    
    def Start(self, attrs, evt_stream, node, parser):
       super().Start(attrs, evt_stream, node, parser)
-      self._v = dict()
+      self._v = OrderedDict()
       for slice in Version.__components:
          try:
             self._v[slice] = attrs[slice]
@@ -980,7 +980,7 @@ class Version(Parsable, Dispatchable):
    
    @property
    def data(self):
-      return dict((k, self._v[k]) for k in Version.__components)
+      return OrderedDict((k, self._v[k]) for k in Version.__components)
    
    @staticmethod
    def create(components):
@@ -996,8 +996,8 @@ class Protocol(Parsable, Dispatchable):
    def __init__(self):
       super().__init__()
       self.log = logging.getLogger('transmute.base.Protocol')
-      self.messages    = dict()
-      self._values     = dict()
+      self.messages    = OrderedDict()
+      self._values     = OrderedDict()
       self.description = None
       self._endian     = None
       self.chunksize   = None
@@ -1038,8 +1038,8 @@ class Protocol(Parsable, Dispatchable):
       except KeyError as ke:
          self.log.info("no endian given, using default")
          self._endian = Constants.endian['big']
-      self.messages    = dict()
-      self._values     = dict()
+      self.messages    = OrderedDict()
+      self._values     = OrderedDict()
       self.description = None
       self.header      = None
       self.trailer     = None
@@ -1089,7 +1089,7 @@ class Protocol(Parsable, Dispatchable):
       if self._version is None:
          self._version = Version.Create({'major':1, 'minor':0})
          self.log.info("<{}> has no version, using default".format(self.getTag()))
-      if any(map(lambda combo: self.messages[combo[0]].abbreviation == self.messages[combo[r]].abbreviation, itertools.combinations(self.messages.keys(), 2))):
+      if any(map(lambda combo: self.messages[combo[0]].abbreviation == self.messages[combo[1]].abbreviation, itertools.combinations(self.messages.keys(), 2))):
          raise ValidationError("<{}> '{}' has repeated {} abbreviations".format(self.getTag(), self.description.name, Message.tag()))
       self.log.info("Validation complete for {} '{}'".format(self.getTag(), self.name))
    
@@ -1109,7 +1109,7 @@ class Protocol(Parsable, Dispatchable):
    
    @property
    def values(self):
-      return dict((k,self._values[k]) for k in self._values)
+      return OrderedDict((k,self._values[k]) for k in self._values)
    
    @property
    def endian(self):
@@ -1129,9 +1129,9 @@ class Protocol(Parsable, Dispatchable):
                   self.log.debug("         Rejecting {}".format(field))
       f = search(self.messages)
       if f is None and self.header is not None:
-         f = search(dict(((self.header.abbreviation, self.header),)))
+         f = search(OrderedDict(((self.header.abbreviation, self.header),)))
       if f is None and self.trailer is not None:
-         f = search(dict(((self.trailer.abbreviation, self.trailer),)))
+         f = search(OrderedDict(((self.trailer.abbreviation, self.trailer),)))
       return f
    
    def hasField(self, abbreviation):
