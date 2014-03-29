@@ -117,7 +117,14 @@ def register(args_parser, xml_parser):
 
 #
 _ws_text = { 'header_comment'    : "/* \n * File: {{filename}}\n * Description: {{description}}\n * Generated using transmute {transmute_version} Wireshark plugin {plugin_version}\n */\n".format(**{'transmute_version':transmute_version,'plugin_version':version_string}),
-             'header_includes'   : "#include \"config.h\"\n#include <glib.h>\n#include <epan/packet.h>\n#include <epan/proto.h>\n",
+             'header_includes'   : '\n'.join(['#include "config.h"',
+                                              '#include <glib.h>',
+                                              '#include <epan/packet.h>',
+                                              '#include <epan/proto.h>',
+                                              '#include <epan/tvbuff.h>',
+                                              '#include <epan/column-utils.h>',
+                                              ''
+                                            ]),
              'source_includes'   : "#include \"packet-{name}.h\"\n",
              'enum'              : "typedef enum enum_{name} {{\n{values}\n}} {name};\n",
              'enum_value'        : "{indent}{name} = {value}",
@@ -139,8 +146,8 @@ _ws_ftypes = {'undecoded'         : 'NONE',
               'boolean'           : 'BOOLEAN',
               'enum'              : 'UINT',
               'enumeration'       : 'UINT',
-              'weighted'          : 'DOUBLE',
-              'unsigned weighted' : 'DOUBLE',
+              'weighted'          : 'INT',
+              'unsigned weighted' : 'UINT',
               'float'             : 'FLOAT',
               'double'            : 'DOUBLE',
               'int'               : 'INT',
@@ -236,6 +243,11 @@ def var_decl(v):
    _logger.debug('ws:var_decl({})'.format(v))
    return '{}\n'.format(''.join((v[:v.index('=')].rstrip(),';')))
 
+def ws_chunks2bytes(chunksize, i):
+   if chunksize % 8 or chunksize <= 0:
+      raise ValueError(chunksize)
+   return int(round(i * (chunksize / 8), 0))
+
 def write_dissect_fxn(dispatchable_obj, cfile):
    if ws_has_section(dispatchable_obj, 'header'):
       write_dissect_fxn(dispatchable_obj.header, cfile)
@@ -265,8 +277,8 @@ def write_dissect_fxn(dispatchable_obj, cfile):
    cfile.write('{indent}pItem = proto_tree_add_item(   tree, {proto_or_hf}_{name}, tvb, {offset}, {length}, ENC_{endian}_ENDIAN);\n'.format(indent = _ws_text['indent'],
                                                                                                                          name   = abbr2name(dispatchable_obj.abbreviation),
                                                                                                                          endian = "BIG" if dispatchable_obj.endian == Constants.endian['big'] else "LITTLE",
-                                                                                                                         proto_or_hf = "proto" if dispatchable_obj.getTag() == Protocol.tag() else "hf_msg",
-                                                                                                                         length = dispatchable_obj.position.chunklength,
+                                                                                                                         proto_or_hf = "proto" if dispatchable_obj.getTag() == Protocol.tag() else "hf",
+                                                                                                                         length = ws_chunks2bytes(dispatchable_obj.position.chunksize, dispatchable_obj.position.chunklength),
                                                                                                                          offset = dispatchable_obj.position.index
                                                                                                                         ))
    cfile.write('{indent}pTree = proto_item_add_subtree(pItem, ett_{name});\n'.format(indent = _ws_text['indent'],
@@ -282,29 +294,29 @@ def write_dissect_fxn(dispatchable_obj, cfile):
                                                                                                     bitlen  = f.position.bitlength,
                                                                                                     enc     = "ENC_LITTLE_ENDIAN" if f.endian == Constants.endian['little'] else "ENC_BIG_ENDIAN"
                                                                                                    ))
-            cfile.write('{indent}proto_tree_float_bits_format_value(pTree, hf_{name}, tvb, {bitoffset}, {bitlength}, "%f", ((float)(value * {scale})) + ((float){voffset}));\n'.format(indent    = _ws_text['indent'],
-                                                                                                                                                                                       name      = abbr2name(f.description.abbreviation),
-                                                                                                                                                                                       endian    = "BIG" if f.endian == Constants.endian['big'] else "LITTLE",
-                                                                                                                                                                                       bitlength = f.position.bitlength,
-                                                                                                                                                                                       bitoffset = f.position.bitoffset,
-                                                                                                                                                                                       scale     = f.weight.lsb,
-                                                                                                                                                                                       voffset   = f.weight.offset
-                                                                                                                                                                                      ))
+            cfile.write('{indent}proto_tree_add_float_format_value(pTree, hf_{name}, tvb, {byteoffset}, {bytelength}, ((float)(value * {scale})) + ((float){voffset}), "%f");\n'.format(indent     = _ws_text['indent'],
+                                                                                                                                                                                        name       = abbr2name(f.description.abbreviation),
+                                                                                                                                                                                        endian     = "BIG" if f.endian == Constants.endian['big'] else "LITTLE",
+                                                                                                                                                                                        bytelength = ws_chunks2bytes(f.position.chunksize, f.position.chunklength),
+                                                                                                                                                                                        byteoffset = ws_chunks2bytes(f.position.chunksize, f.position.index),
+                                                                                                                                                                                        scale      = f.weight.lsb,
+                                                                                                                                                                                        voffset    = f.weight.offset
+                                                                                                                                                                                       ))
          else:
             cfile.write('{indent}proto_tree_add_item(pTree, hf_{name}, tvb, {offset}, {length}, ENC_{endian}_ENDIAN);\n'.format(indent = _ws_text['indent'],
                                                                                                                                 name   = abbr2name(f.description.abbreviation),
                                                                                                                                 endian = "BIG" if f.endian == Constants.endian['big'] else "LITTLE",
-                                                                                                                                length = f.position.chunklength,
+                                                                                                                                length = ws_chunks2bytes(f.position.chunksize, f.position.chunklength),
                                                                                                                                 offset = f.position.index
                                                                                                                                ))
    if ws_has_section(dispatchable_obj, 'messages'):
       cfile.write('{indent}value = tvb_length(tvb);\n'.format(indent = _ws_text['indent']))
       if ws_has_section(dispatchable_obj, 'header'):
-         cfile.write('{indent}value -= {length}; //header length\n'.format(indent = _ws_text['indent'], length = dispatchable_obj.header.position.chunklength))
+         cfile.write('{indent}value -= {length}; //header length\n'.format(indent = _ws_text['indent'], length = ws_chunks2bytes(dispatchable_obj.header.position.chunksize, dispatchable_obj.header.position.chunklength)))
       if ws_has_section(dispatchable_obj, 'trailer'):
-         cfile.write('{indent}value -= {length}; //trailer length\n'.format(indent = _ws_text['indent'], length = dispatchable_obj.trailer.position.chunklength))
-      cfile.write('{indent}tvbr = tvbuff_new_subset(tvb, {offset}, value, value);\n'.format(indent = _ws_text['indent'],
-                                                                                            offset = dispatchable_obj.header.position.chunklength if ws_has_section(dispatchable_obj, 'header') else 0
+         cfile.write('{indent}value -= {length}; //trailer length\n'.format(indent = _ws_text['indent'], length = ws_chunks2bytes(dispatchable_obj.trailer.position.chunksize, dispatchable_obj.trailer.position.chunklength)))
+      cfile.write('{indent}tvbr = tvb_new_subset(tvb, {offset}, value, value);\n'.format(indent = _ws_text['indent'],
+                                                                                            offset = ws_chunks2bytes(dispatchable_obj.header.position.chunksize, dispatchable_obj.header.position.chunklength) if ws_has_section(dispatchable_obj, 'header') else 0
                                                                                            ))
       for table in (c for c in dispatchable_obj.children if isinstance(c, Expose)):
          cfile.write('{indent}pTable = find_dissector_table("{name}");\n'.format(indent = _ws_text['indent'],
@@ -316,7 +328,7 @@ def write_dissect_fxn(dispatchable_obj, cfile):
                                                                                                  bitlen  = tfield.position.bitlength,
                                                                                                  enc     = "ENC_LITTLE_ENDIAN" if tfield.endian == Constants.endian['little'] else "ENC_BIG_ENDIAN"
                                                                                                 ))
-         cfile.write('{indent}if(pTable)\n{indent}{{\n{indent}{indent}dissector_try_uint(pTable, value, pinfo, tree);\n{indent}}}\n'.format(indent = _ws_text['indent']))
+         cfile.write('{indent}if(pTable)\n{indent}{{\n{indent}{indent}dissector_try_uint(pTable, value, tvbr, pinfo, tree);\n{indent}}}\n'.format(indent = _ws_text['indent']))
    if ws_has_section(dispatchable_obj, 'trailer'):
       cfile.write('{indent}dissect_{name}(tvb, pinfo, pTree);\n'.format(indent = _ws_text['indent'],
                                                                         name   = abbr2name(dispatchable_obj.trailer.abbreviation)
@@ -341,13 +353,12 @@ def write_register_fxn(dispatchable_obj, cfile):
       cfile.write(header_fields.lstrip(','))
       cfile.write('\n{indent}}};\n'.format(**{'indent':_ws_text['indent']}))
    cfile.write('{indent}static gint *ett[] = {{\n'.format(**{'indent':_ws_text['indent']}))
-   cfile.write('{indent}{indent}&ett_{ett}\n'.format(**{'indent':_ws_text['indent'], 'ett':abbr2name(dispatchable_obj.abbreviation)}))
+   cfile.write('{indent}{indent}&ett_{ett}'.format(**{'indent':_ws_text['indent'], 'ett':abbr2name(dispatchable_obj.abbreviation)}))
    if ws_has_section(dispatchable_obj, 'header'):
-      cfile.write('{indent}{indent}&ett_{ett}\n'.format(**{'indent':_ws_text['indent'], 'ett':abbr2name(dispatchable_obj.header.abbreviation)}))
+      cfile.write(',\n{indent}{indent}&ett_{ett}'.format(**{'indent':_ws_text['indent'], 'ett':abbr2name(dispatchable_obj.header.abbreviation)}))
    if ws_has_section(dispatchable_obj, 'trailer'):
-      cfile.write('{indent}{indent}&ett_{ett}\n'.format(**{'indent':_ws_text['indent'], 'ett':abbr2name(dispatchable_obj.trailer.abbreviation)}))
-   cfile.write('{indent}}};\n'.format(**{'indent':_ws_text['indent']}))
-   cfile.write('{indent}dissector_handle_t handle_{name};\n'.format(**{'indent':_ws_text['indent'], 'name':abbr2name(dispatchable_obj.abbreviation)}))
+      cfile.write(',\n{indent}{indent}&ett_{ett}'.format(**{'indent':_ws_text['indent'], 'ett':abbr2name(dispatchable_obj.trailer.abbreviation)}))
+   cfile.write('\n{indent}}};\n'.format(**{'indent':_ws_text['indent']}))
    #note: the module_t* variables are needed for protocol preferences and other items we don't support yet
    #cfile.write('{indent}module_t *module_{name};\n'.format(**{'indent':_ws_text['indent'], 'name':abbr2name(dispatchable_obj.abbreviation)}))
    cfile.write('{indent}proto_{name} = proto_register_protocol("{detail}", "{brief}", "{abbreviation}");\n'.format(**{'indent'       : _ws_text['indent'], 
@@ -358,8 +369,8 @@ def write_register_fxn(dispatchable_obj, cfile):
                                                                                                                      }))
    cfile.write('{indent}handle_{name} = create_dissector_handle(dissect_{name}, proto_{name});\n'.format(**{'indent':_ws_text['indent'], 'name':abbr2name(dispatchable_obj.abbreviation)}))
    if dispatchable_obj.hasFields():
-      cfile.write('{indent}proto_register_field_array(proto_{name}, hf);\n'.format(**{'indent':_ws_text['indent'], 'name':abbr2name(dispatchable_obj.abbreviation)}))
-   cfile.write('{indent}proto_register_subtree_array(proto_{name}, ett, array_length(ett));\n'.format(**{'indent':_ws_text['indent'], 'name':abbr2name(dispatchable_obj.abbreviation)}))
+      cfile.write('{indent}proto_register_field_array(proto_{name}, hf, array_length(hf));\n'.format(**{'indent':_ws_text['indent'], 'name':abbr2name(dispatchable_obj.abbreviation)}))
+   cfile.write('{indent}proto_register_subtree_array(ett, array_length(ett));\n'.format(**{'indent':_ws_text['indent']}))
    for table in (c for c in dispatchable_obj.children if isinstance(c, Expose)):
       field = dispatchable_obj.getField(table.field)
       cfile.write('{indent}register_dissector_table("{field}", "{descr}", FT_{ftype}, BASE_{btype});\n'.format(indent = _ws_text['indent'],
@@ -373,26 +384,27 @@ def write_register_fxn(dispatchable_obj, cfile):
       for m in dispatchable_obj.messages.values():
          write_register_fxn(m, cfile)
 
-def write_handoff_fxn(dispatchable_obj, cfile):
+def write_handoff_fxn(dispatchable_obj, cfile, local_handles):
    cfile.write('{decl}\n{{\n'.format(**{'decl':_ws_text['handoff_fxn_decl'].format(name=abbr2name(dispatchable_obj.abbreviation))}))
+   _local_handles = ['handle_{name}'.format(name = abbr2name(l.abbreviation)) for l in local_handles.values()]
    handles = set()
    joins = [j for j in dispatchable_obj.children if isinstance(j, Register)]
    for j in joins:
       handles.add('handle_{name}'.format(name = abbr2name(j.parent.abbreviation)))
    for h in handles:
+      if h not in _local_handles:
          cfile.write('{indent}dissector_handle_t {handle};\n'.format(indent = _ws_text['indent'], handle = h))
-   cfile.write('{indent}dissector_handle_t handle_{name} = find_dissector("{name}");\n'.format(indent = _ws_text['indent'], name=abbr2name(dispatchable_obj.abbreviation)))
    for j in joins:
-      cfile.write('{indent}handle_{name} = find_dissector("{name}");\n'.format(indent = _ws_text['indent'], name=abbr2name(j.parent.abbreviation)))
-      
-      cfile.write('{indent}dissector_add("{table}", {value}, handle_{name});\n'.format(indent = _ws_text['indent'],
-                                                                                       table  = j.table,
-                                                                                       value  = j.value,
-                                                                                       name   = abbr2name(j.parent.abbreviation)))
+      if h not in _local_handles:
+         cfile.write('{indent}handle_{name} = find_dissector("{name}");\n'.format(indent = _ws_text['indent'], name=abbr2name(j.parent.abbreviation)))
+      cfile.write('{indent}dissector_add_uint("{table}", {value}, handle_{name});\n'.format(indent = _ws_text['indent'],
+                                                                                            table  = j.table,
+                                                                                            value  = j.value,
+                                                                                            name   = abbr2name(j.parent.abbreviation)))
    cfile.write('}\n\n')
    if ws_has_section(dispatchable_obj, 'messages'):
       for m in dispatchable_obj.messages.values():
-         write_handoff_fxn(m, cfile)
+         write_handoff_fxn(m, cfile, local_handles)
 
 def write_cmake_file(folder, dispatchable_obj):
    with open(os.path.join(folder, 'CMakeLists.txt'), 'w') as cmakefile:
@@ -476,10 +488,10 @@ def write_makefile_common(folder, dispatchable_obj):
                              '\t$(NONGENERATED_REGISTER_C_FILES)',
                              '',
                              'CLEAN_HEADER_FILES = \\',
-                             '\tpacket-{}.c'.format(dispatchable_obj.abbreviation),
+                             '\tpacket-{}.h'.format(dispatchable_obj.abbreviation),
                              '',
                              'HEADER_FILES = \\',
-                             '\tpacket-{}.h'.format(dispatchable_obj.abbreviation),
+                             '\t$(CLEAN_HEADER_FILES)',
                              '',
                              'include ../Makefile.common.inc',
                              '']
@@ -508,8 +520,8 @@ def write_makefile_am(folder, dispatchable_obj):
                              '\t$(SRC_FILES)\t\\',
                              '\t$(HEADER_FILES)',
                              '',
-                             '{}_la_LDFLAGS = -module -avoid-version',
-                             '{}_la_LIBADD = @PLUGIN_LIBS@',
+                             '{}_la_LDFLAGS = -module -avoid-version'.format(dispatchable_obj.abbreviation),
+                             '{}_la_LIBADD = @PLUGIN_LIBS@'.format(dispatchable_obj.abbreviation),
                              '',
                              'LIBS =',
                              '',
@@ -572,9 +584,9 @@ def write_makefile_nmake(folder, dispatchable_obj):
                              '',
                              'OBJECTS = $(C_FILES:.c=.obj) $(CPP_FILES:.cpp=.obj) plugin.obj',
                              '',
-                             'RESOUCE=$(PLUGIN_NAME).res',
+                             'RESOURCE=$(PLUGIN_NAME).res',
                              '',
-                             'all: $(PLUGIN_NAME).res',
+                             'all: $(PLUGIN_NAME).dll',
                              '',
                              '$(PLUGIN_NAME).rc : moduleinfo.nmake',
                              '\tsed -e s/@PLUGIN_NAME@/$(PLUGIN_NAME)/ \\',
@@ -585,9 +597,11 @@ def write_makefile_nmake(folder, dispatchable_obj):
                              '\t-e s/@VERSION@/$(VERSION)/ \\',
                              '\t-e s/@MSVC_VARIANT@/$(MSVC_VARIANT)/ \\',
                              '\t< plugin.rc.in > $@',
+                             '',
                              '$(PLUGIN_NAME).dll $(PLUGIN_NAME).exp $(PLUGIN_NAME).lib : $(OBJECTS) $(LINK_PLUGIN_WITH) $(RESOURCE)',
-                             'link -dll /out:$(PLUGIN_NAME).dll $(LDFLAGS) $(OBJECTS) $(LINK_PLUGIN_WITH) \\',
-                             '$(GLIB_LIBS) $(RESOURCE)',
+                             '\tlink -dll /out:$(PLUGIN_NAME).dll $(LDFLAGS) $(OBJECTS) $(LINK_PLUGIN_WITH) \\',
+                             '\t$(GLIB_LIBS) $(RESOURCE)',
+                             '',
                              '!IFDEF PYTHON',
                              'plugin.c: $(REGISTER_SRC_FILES) moduleinfo.h Makefile.common ../../tools/make-dissector-reg.py',
                              '\t@echo Making plugin.c (using python)',
@@ -606,13 +620,74 @@ def write_makefile_nmake(folder, dispatchable_obj):
                              '',
                              'distclean: clean',
                              '',
-                             'maintaner-clean: distclean',
+                             'maintainer-clean: distclean',
                              '',
                              'checkapi:',
                              '\t$(PERL) ../../tools/checkAPIs.pl -g abort -g termoutput -build \\',
                              '\t\t$(CLEAN_SRC_FILES) $(CLEAN_HEADER_FILES)',
                              '']
                  ))
+
+def write_plugin_rc_in(folder, dispatchable_obj):
+   with open(os.path.join(folder, 'plugin.rc.in'), 'w') as mfile:
+      mfile.write('\n'.join([r'#include "winver.h"',
+                             r'',
+                             r'VS_VERSION_INFO VERSIONINFO',
+                             r' FILEVERSION @RC_MODULE_VERSION@',
+                             r' PRODUCTVERSION @RC_VERSION@',
+                             r' FILEFLAGSMASK 0x0L',
+                             r'#ifdef _DEBUG',
+                             r' FILEFLAGS VS_FF_DEBUG',
+                             r'#else',
+                             r' FILEFLAGS 0',
+                             r'#endif',
+                             r' FILEOS VOS_NT_WINDOWS32',
+                             r' FILETYPE VFT_DLL',
+                             r'BEGIN',
+                             r'    BLOCK "StringFileInfo"',
+                             r'    BEGIN',
+                             r'        BLOCK "040904b0"',
+                             r'        BEGIN',
+                             r'            VALUE "CompanyName", "Transmute-users\0"',
+                             r'            VALUE "FileDescription", "@PACKAGE@ dissector\0"',
+                             r'            VALUE "FileVersion", "@MODULE_VERSION@\0"',
+                             r'            VALUE "InternalName", "@PACKAGE@ @MODULE_VERSION@\0"',
+                              '            VALUE "LegalCopyright", "Copyright \xa9 2014\\0"', #not a rawstring since we need to interpret the \xa9
+                             r'            VALUE "OriginalFilename", "@PLUGIN_NAME@.dll\0"',
+                             r'            VALUE "ProductName", "Wireshark\0"',
+                             r'            VALUE "ProductVersion", "@VERSION@\0"',
+                             r'            VALUE "Comments", "Build with @MSVC_VARIANT@\0"',
+                             r'        END',
+                             r'    END',
+                             r'    BLOCK "VarFileInfo"',
+                             r'    BEGIN',
+                             r'        VALUE "Translation", 0x409, 1200',
+                             r'    END',
+                             r'END',
+                             r'']
+                           ))
+
+def write_moduleinfo_h(folder, dispatchable_obj):
+   with open(os.path.join(folder, 'moduleinfo.h'), 'w') as mfile:
+      mfile.write('\n'.join(['/* Automatically generated using Transmute',
+                             '   Included *after* config.h, in order to re-define these macros */',
+                             '',
+                             '#ifdef PACKAGE',
+                             '#undef PACKAGE',
+                             '#endif',
+                             '',
+                             '/* Name of package */',
+                             '#define PACKAGE "{name}"'.format(name = abbr2name(dispatchable_obj.abbreviation)),
+                             '',
+                             '',
+                             '#ifdef VERSION',
+                             '#undef VERSION',
+                             '#endif',
+                             '',
+                             '/* Version number of package */',
+                             '#define VERSION "{major}.{minor}.{micro}"'.format(**dispatchable_obj.version.data),
+                             '',
+                             '']))
 
 def dispatch_node(dispatchable_obj, namespace):
    if   dispatchable_obj.getTag() == Field.tag():
@@ -626,7 +701,9 @@ def dispatch_node(dispatchable_obj, namespace):
          raise DispatchError("More than one tree with name {name}".format(name = dispatchable_obj.abbreviation))
       namespace['messages'][dispatchable_obj.abbreviation] = dispatchable_obj
       namespace['trees'][dispatchable_obj.abbreviation] = dispatchable_obj
+      namespace['handles'][dispatchable_obj.abbreviation] = dispatchable_obj
    elif dispatchable_obj.getTag() == Protocol.tag():
+      namespace['handles'][dispatchable_obj.abbreviation] = dispatchable_obj
       namespace['trees'][dispatchable_obj.abbreviation] = dispatchable_obj
    elif dispatchable_obj.getTag() == Values.tag():
       if dispatchable_obj.name in (set(namespace['enums'].keys()) | set(namespace['value_strings'].keys()) | set(namespace['true_false_strings'].keys())):
@@ -680,7 +757,8 @@ def dispatch(dispatchable_obj):
                     'tables'             : OrderedDict(),
                     'joins'              : OrderedDict(),
                     'headers'            : OrderedDict(),
-                    'trailers'           : OrderedDict()
+                    'trailers'           : OrderedDict(),
+                    'handles'            : OrderedDict()
                   }
       
       dispatch_node(dispatchable_obj, namespace)
@@ -731,6 +809,11 @@ def dispatch(dispatchable_obj):
                cfile.write(tfs)
             cfile.write('\n')
             
+            cfile.write('/* Dissector Handles */\n')
+            for handle in namespace['handles'].values():
+               cfile.write('static dissector_handle_t handle_{name};\n'.format(name = abbr2name(handle.abbreviation)))
+            cfile.write('\n')
+            
             hfile.write('#endif /* {include_guard} */\n'.format(include_guard = ws_include_guard(hfile)))
             
             #dissect_...
@@ -741,10 +824,12 @@ def dispatch(dispatchable_obj):
             write_register_fxn(dispatchable_obj, cfile)
             #proto_reg_handoff...
             cfile.write('/* proto_reg_handoff_ Functions */\n')
-            write_handoff_fxn(dispatchable_obj, cfile)
+            write_handoff_fxn(dispatchable_obj, cfile, namespace['handles'])
       write_cmake_file(folder, dispatchable_obj)
       write_moduleinfo_file(folder, dispatchable_obj)
       write_makefile_common(folder, dispatchable_obj)
       write_makefile_am(folder, dispatchable_obj)
       write_makefile_nmake(folder, dispatchable_obj)
+      write_plugin_rc_in(folder, dispatchable_obj)
+      write_moduleinfo_h(folder, dispatchable_obj)
       
