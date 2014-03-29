@@ -163,6 +163,11 @@ _ws_ftypes = {'undecoded'         : 'NONE',
 def abbr2name(abbreviation):
    return abbreviation.replace('.','_').replace('-','_')
 
+def ws_chunks2bytes(chunksize, i):
+   if chunksize % 8 or chunksize <= 0:
+      raise ValueError(chunksize)
+   return int(round(i * (chunksize / 8), 0))
+
 def ws_has_section(dispatchable_obj, section):
    return hasattr(dispatchable_obj, section) and getattr(dispatchable_obj, section) is not None
 
@@ -181,6 +186,19 @@ def ws_field_ftype(f):
       else:
          raise DispatchError("<{}> with unsupported bit length {}".format(f.getTag(), bitlength))
    return ftype
+
+def ws_field_size(f):
+   field_type = ws_field_ftype(f)
+   if   (('FLOAT' in field_type) or
+         ('INT32' in field_type)):
+      return 4
+   elif 'INT16' in field_type:
+      return 2
+   elif 'INT8' in field_type:
+      return 1
+   elif 'DOUBLE' in field_type:
+      return 8
+   return ws_chunks2bytes(f.chunksize, f.position.chunklength)
 
 def ws_field_basetype(f):
    bitlength = f.position.bitlength
@@ -210,11 +228,11 @@ def ws_header_field(f):
    attrs['ftype'] = ws_field_ftype(f)
    attrs['btype'] = ws_field_basetype(f)
    
-   if attrs['ftype'][:4] == 'enum':
-      attrs['VALS'] = 'VALS({vstr}_{vname})'.format(**{'vstr' : 'tfs' if is_tfs(f.values) else 'vs',
-                                                       'vname': f.values.name if f.values.name else abbr2name(f.description.abbreviation)
-                                                      })
    if isinstance(f, Field) and attrs['ftype'] != 'NONE':
+      if 'enum' in f.ftype:
+         attrs['VALS'] = 'VALS({vstr}_{vname})'.format(vstr  = 'tfs' if is_tfs(f.values) else 'vs',
+                                                       vname = f.values.name if f.values.name else abbr2name(f.description.abbreviation)
+                                                      )
       attrs['mask'] = hex(f.position.bitmask)
       if((attrs['ftype'] == 'DOUBLE' and attrs['mask'] == '0xffffffffffffffff') or
          (attrs['ftype'] == 'FLOAT'  and attrs['mask'] == '0xffffffff'        ) or
@@ -242,11 +260,6 @@ def tfs_get(v, val):
 def var_decl(v):
    _logger.debug('ws:var_decl({})'.format(v))
    return '{}\n'.format(''.join((v[:v.index('=')].rstrip(),';')))
-
-def ws_chunks2bytes(chunksize, i):
-   if chunksize % 8 or chunksize <= 0:
-      raise ValueError(chunksize)
-   return int(round(i * (chunksize / 8), 0))
 
 def write_dissect_fxn(dispatchable_obj, cfile):
    if ws_has_section(dispatchable_obj, 'header'):
@@ -289,19 +302,26 @@ def write_dissect_fxn(dispatchable_obj, cfile):
    if ws_has_section(dispatchable_obj, 'fields'):
       for f in dispatchable_obj.fields.values():
          if f.ftype in ('weighted', 'unsigned weighted'):
+            sz = ws_field_size(f)
             cfile.write('{indent}value = tvb_get_bits32(tvb, {bitoffs}, {bitlen}, {enc});\n'.format(indent  = _ws_text['indent'],
                                                                                                     bitoffs = f.position.bitstart + (f.position.chunksize * f.position.index),
                                                                                                     bitlen  = f.position.bitlength,
                                                                                                     enc     = "ENC_LITTLE_ENDIAN" if f.endian == Constants.endian['little'] else "ENC_BIG_ENDIAN"
                                                                                                    ))
-            cfile.write('{indent}proto_tree_add_float_format_value(pTree, hf_{name}, tvb, {byteoffset}, {bytelength}, ((float)(value * {scale})) + ((float){voffset}), "%f");\n'.format(indent     = _ws_text['indent'],
-                                                                                                                                                                                        name       = abbr2name(f.description.abbreviation),
-                                                                                                                                                                                        endian     = "BIG" if f.endian == Constants.endian['big'] else "LITTLE",
-                                                                                                                                                                                        bytelength = ws_chunks2bytes(f.position.chunksize, f.position.chunklength),
-                                                                                                                                                                                        byteoffset = ws_chunks2bytes(f.position.chunksize, f.position.index),
-                                                                                                                                                                                        scale      = f.weight.lsb,
-                                                                                                                                                                                        voffset    = f.weight.offset
-                                                                                                                                                                                       ))
+            if   sz == 2:
+               cfile.write('{indent}value = ntohs(value);\n'.format(indent = _ws_text['indent']))
+            elif sz == 4:
+               cfile.write('{indent}value = ntohl(value);\n'.format(indent = _ws_text['indent']))
+            cfile.write('{indent}proto_tree_add_{unsigned}int_format_value(pTree, hf_{name}, tvb, {byteoffset}, {bytelength}, value, "(%{fmt}) %f", ((float)(value * {scale})) + ((float){voffset}));\n'.format(indent     = _ws_text['indent'],
+                                                                                                                                                                                                                name       = abbr2name(f.description.abbreviation),
+                                                                                                                                                                                                                endian     = "BIG" if f.endian == Constants.endian['big'] else "LITTLE",
+                                                                                                                                                                                                                bytelength = ws_chunks2bytes(f.position.chunksize, f.position.chunklength),
+                                                                                                                                                                                                                byteoffset = ws_chunks2bytes(f.position.chunksize, f.position.index),
+                                                                                                                                                                                                                scale      = f.weight.lsb,
+                                                                                                                                                                                                                voffset    = f.weight.offset,
+                                                                                                                                                                                                                unsigned   = 'u' if 'unsigned' in f.ftype else '',
+                                                                                                                                                                                                                fmt        = 'l' if 'unsigned' in f.ftype else 'd'
+                                                                                                                                                                                                               ))
          else:
             cfile.write('{indent}proto_tree_add_item(pTree, hf_{name}, tvb, {offset}, {length}, ENC_{endian}_ENDIAN);\n'.format(indent = _ws_text['indent'],
                                                                                                                                 name   = abbr2name(f.description.abbreviation),
@@ -328,7 +348,7 @@ def write_dissect_fxn(dispatchable_obj, cfile):
                                                                                                  bitlen  = tfield.position.bitlength,
                                                                                                  enc     = "ENC_LITTLE_ENDIAN" if tfield.endian == Constants.endian['little'] else "ENC_BIG_ENDIAN"
                                                                                                 ))
-         cfile.write('{indent}if(pTable)\n{indent}{{\n{indent}{indent}dissector_try_uint(pTable, value, tvbr, pinfo, tree);\n{indent}}}\n'.format(indent = _ws_text['indent']))
+         cfile.write('{indent}if(pTable)\n{indent}{{\n{indent}{indent}dissector_try_uint(pTable, value, tvbr, pinfo, pTree);\n{indent}}}\n'.format(indent = _ws_text['indent']))
    if ws_has_section(dispatchable_obj, 'trailer'):
       cfile.write('{indent}dissect_{name}(tvb, pinfo, pTree);\n'.format(indent = _ws_text['indent'],
                                                                         name   = abbr2name(dispatchable_obj.trailer.abbreviation)
@@ -361,12 +381,12 @@ def write_register_fxn(dispatchable_obj, cfile):
    cfile.write('\n{indent}}};\n'.format(**{'indent':_ws_text['indent']}))
    #note: the module_t* variables are needed for protocol preferences and other items we don't support yet
    #cfile.write('{indent}module_t *module_{name};\n'.format(**{'indent':_ws_text['indent'], 'name':abbr2name(dispatchable_obj.abbreviation)}))
-   cfile.write('{indent}proto_{name} = proto_register_protocol("{detail}", "{brief}", "{abbreviation}");\n'.format(**{'indent'       : _ws_text['indent'], 
-                                                                                                                     'name'         : abbr2name(dispatchable_obj.abbreviation),
-                                                                                                                     'detail'       : dispatchable_obj.description.detail,
-                                                                                                                     'brief'        : dispatchable_obj.description.brief,
-                                                                                                                     'abbreviation' : dispatchable_obj.description.abbreviation
-                                                                                                                     }))
+   cfile.write('{indent}proto_{name} = proto_register_protocol("{protoname}", "{brief}", "{abbreviation}");\n'.format(indent       = _ws_text['indent'], 
+                                                                                                                      name         = abbr2name(dispatchable_obj.abbreviation),
+                                                                                                                      protoname    = dispatchable_obj.description.name,
+                                                                                                                      brief        = dispatchable_obj.description.brief,
+                                                                                                                      abbreviation = dispatchable_obj.description.abbreviation
+                                                                                                                     ))
    cfile.write('{indent}handle_{name} = create_dissector_handle(dissect_{name}, proto_{name});\n'.format(**{'indent':_ws_text['indent'], 'name':abbr2name(dispatchable_obj.abbreviation)}))
    if dispatchable_obj.hasFields():
       cfile.write('{indent}proto_register_field_array(proto_{name}, hf, array_length(hf));\n'.format(**{'indent':_ws_text['indent'], 'name':abbr2name(dispatchable_obj.abbreviation)}))

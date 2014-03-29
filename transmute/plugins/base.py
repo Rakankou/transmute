@@ -22,8 +22,8 @@ _anon_counter = itertools.count(0,1)
 
 class Constants:
    chunksize = {"8" : 8, "16" : 16, "32" : 32}
-   bit0      = {"MSb" : object(), "LSb" : object()}
-   endian    = {"big" : object(), "little" : object()}
+   bit0      = {"MSb" : 'MSb', "LSb" : 'LSb'}
+   endian    = {"big" : 'big', "little" : 'little'}
 
 class Detail(Parsable, Dispatchable):
    def __init__(self):
