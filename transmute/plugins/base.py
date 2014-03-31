@@ -20,11 +20,23 @@ _prefix = ''
 
 _anon_counter = itertools.count(0,1)
 
+##
+# @name Constants
+# @brief A collection of constant values used throughout the application.
 class Constants:
+   ## @brief Valid values for protocol chunk sizes (in bits).
    chunksize = {"8" : 8, "16" : 16, "32" : 32}
+   ## @brief Valid values for which bit is counted as bit 0.
    bit0      = {"MSb" : 'MSb', "LSb" : 'LSb'}
+   ## @brief Valid values for protocol endianness.
    endian    = {"big" : 'big', "little" : 'little'}
 
+##
+# @name Detail
+# @brief A detailed description of the enclosing element.
+# @details XML tag: detail
+#          Attributes: none
+#          CData: A detailed description of the parent of the enclosing \ref Description
 class Detail(Parsable, Dispatchable):
    def __init__(self):
       super().__init__()
@@ -55,16 +67,30 @@ class Detail(Parsable, Dispatchable):
       super().Validate(parent)
    
    @property
+   ##
+   # @name detail
+   # @brief Return the content of the tag's CData
+   # @details This is equivalent to calling str(this)
    def detail(self):
       return self._detail
    
    @detail.setter
+   ##
+   # @name detail
+   # @brief Override the content of the tag's CData
+   # @param data [in] The new data to use
    def detail(self, data):
       self._detail = data
    
    def __str__(self):
       return self._detail
 
+##
+# @name Brief
+# @brief Contains a brief description of the enclosing element
+# @details XML tag: brief
+#          Attributes: none
+#          CData: A brief description of the parent of the enclosing \ref Description.
 class Brief(Parsable, Dispatchable):
    def __init__(self):
       super().__init__()
@@ -1152,7 +1178,6 @@ class Protocol(Parsable, Dispatchable):
    @property
    def version(self):
       return self._version
-            
 
 def register(args_parser, xml_parser):
    for parsable in [Protocol,
