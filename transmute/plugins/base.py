@@ -37,6 +37,7 @@ class Constants:
 # @details XML tag: detail
 #          Attributes: none
 #          CData: A detailed description of the parent of the enclosing \ref Description
+#          Children: none
 class Detail(Parsable, Dispatchable):
    def __init__(self):
       super().__init__()
@@ -91,6 +92,7 @@ class Detail(Parsable, Dispatchable):
 # @details XML tag: brief
 #          Attributes: none
 #          CData: A brief description of the parent of the enclosing \ref Description.
+#          Children: none
 class Brief(Parsable, Dispatchable):
    def __init__(self):
       super().__init__()
@@ -131,6 +133,15 @@ class Brief(Parsable, Dispatchable):
    def __str__(self):
       return self._brief
 
+##
+# @name Description
+# @brief An element used to provide descriptive text regarding its parent.
+# @details XML tag: description
+#          Attributes: name, abbreviation
+#             name (required) - The name of the parent element, in human-readable form
+#             abbreviation (required) - The unique identifier of the parent element, in machine-ready form
+#          CData: None
+#          Children: brief (one, required), detail (one, optional)
 class Description(Parsable, Dispatchable):
    def __init__(self):
       super().__init__()
@@ -203,6 +214,15 @@ class Description(Parsable, Dispatchable):
    def detail(self, value):
       self._detail = value
 
+##
+# @name Value
+# @brief A single integral value
+# @details XML tag: value
+#          Attributes: name, int
+#             name (required) - The name of the value
+#             int (required) - The integral value that maps to the given name
+#          CData: none
+#          Children: none
 class Value(Parsable, Dispatchable):
    def __init__(self):
       super().__init__()
@@ -260,6 +280,14 @@ class Value(Parsable, Dispatchable):
       else:
          self._ival = data
 
+##
+# @name Values
+# @brief A collection of enumerated values
+# @details XML tag: values
+#          Attributes: name
+#             name (optional) - The name of the collection
+#          CData: None
+#          Children: value (N, optional)
 class Values(Parsable, Dispatchable):
    def __init__(self):
       super().__init__()
@@ -332,6 +360,16 @@ class Values(Parsable, Dispatchable):
       for v in self._values:
          yield v
    
+##
+# @name Bits
+# @brief A specification for a set of bits.
+# @details XML tag: bits
+#          Attributes: start, end, mask
+#             start (one, exclusive with mask, required with end) - The first bit in the set
+#             end (one, exclusive with mask, required with start) - The last bit in the set
+#             mask (one, exclusive with mask, required without others) - The set of bits as a mask
+#          CData: none
+#          Children: none
 class Bits(Parsable, Dispatchable):
    def __init__(self):
       super().__init__()
@@ -412,6 +450,14 @@ class Bits(Parsable, Dispatchable):
       else:
          return 0
 
+##
+# @name Chunks
+# @brief A specification for a collection of chunks
+# @details XML tag: chunks
+#          Attributes: length
+#             length (required) - The number of chunks in the collection
+#          CData: none
+#          Children: none
 class Chunks(Parsable, Dispatchable):
    def __init__(self):
       super().__init__()
@@ -451,6 +497,14 @@ class Chunks(Parsable, Dispatchable):
    def __int__(self):
       return self.length if self.length is not None else 0
 
+##
+# @name Position
+# @brief An element used to provide location information about the enclosing parent
+# @details XML tag: position
+#          Attributes: index
+#             index (one, required) - The first chunk that includes the desired location
+#          CData: none
+#          Children: bits (one, exclusive with chunks, required without chunks), chunks (exclusive with bits, required without bits)
 class Position(Parsable, Dispatchable):
    def __init__(self):
       super().__init__()
@@ -574,6 +628,15 @@ class Position(Parsable, Dispatchable):
       npos._chunksize = chunksize
       return npos
 
+##
+# @name Weight
+# @brief A scale factor
+# @details XML tag: weight
+#          Attributes: lsb, offset
+#             lsb (one, required) - The scalar value
+#             offset (one, optional) - The base value offset
+#          CData: none
+#          Children: none
 class Weight(Parsable, Dispatchable):
    def __init__(self):
       super().__init__()
@@ -627,6 +690,15 @@ class Weight(Parsable, Dispatchable):
    def offset(self):
       return self._offset if self._offset is not None else 0.0
 
+##
+# @name Field
+# @brief A single protocol data field
+# @details XML tag: field
+#          Attributes: type, endian
+#             type (one, required) - The type of the field. One of undecoded, bool[ean], enum[eration], [unsigned] weighted, float, double, [unsigned] int[eger]
+#             endian (one, optional) - The endianness of the field (inherited from parent when omitted)
+#          CData: none
+#          Children: description (one, required), position (one, required), weight (one, required when type is [unsigned] weighted), values (one, required when type is enum[eration])
 class Field(Parsable, Dispatchable):
    class FTypeHandler(metaclass = ABCMeta):
       def __init__(self, typename, fld):
@@ -816,6 +888,13 @@ class Field(Parsable, Dispatchable):
       if self._weight is not None:
          return self._weight
 
+##
+# @name Message
+# @brief An element that describes a message within a protocol
+# @details XML tag: message
+#          Attributes: none
+#          CData: none
+#          Children: description (one, required), header (one, optional), trailer (one, optional), field (N, optional), values (N, optional)
 class Message(Parsable, Dispatchable):
    def __init__(self):
       super().__init__()
@@ -952,6 +1031,13 @@ class Message(Parsable, Dispatchable):
          rv = True
       return rv
 
+##
+# @name Header
+# @brief A collection of fields at the beginning of a protocol message.
+# @details XML tag: header
+#          Attributes: none
+#          CData: none
+#          Children: description (one, required), field (N, optional)
 class Header(Message):
    def __init__(self):
       super().__init__()
@@ -960,6 +1046,13 @@ class Header(Message):
    def tag():
       return ':'.join([_prefix, 'header']).lstrip(':')
 
+##
+# @name Trailer
+# @brief A collection of fields at the end of a protocol message.
+# @details XML tag: trailer
+#          Attributes: none
+#          CData: none
+#          Children: description (one, required), field (N, optional)
 class Trailer(Message):
    def __init__(self):
       super().__init__()
@@ -968,6 +1061,17 @@ class Trailer(Message):
    def tag():
       return ':'.join([_prefix, 'trailer']).lstrip(':')
 
+##
+# @name Version
+# @brief A set of version information
+# @details XML tag: version
+#          Attributes: major, minor, micro, extra
+#             major (required) - The major version information
+#             minor (required) - The minor version information
+#             micro (required) - The micro (patch) version information
+#             extra (required) - The extra (build/assembly) version information
+#          CData: 
+#          Children: 
 class Version(Parsable, Dispatchable):
    __components = ['major','minor','micro','extra']
    
@@ -1018,6 +1122,16 @@ class Version(Parsable, Dispatchable):
             v._v[slice] = ''
       return v
 
+##
+# @name Protocol
+# @brief The top-level element describing a messaging protocol
+# @details XML tag: protocol
+#          Attributes: endian, bit0, chunksize
+#             endian (optional) - The endianness of the protocol. One of the following: big, little (default: big).
+#             bit0 (optional) - Which bit is numbered 0. One of the following: MSb, LSb (default: LSb).
+#             chunksize (optional) - How many bits comprise one unit of the protocol. One of the following: 8, 16, 32 (default: 8).
+#          CData: none
+#          Children: description (one, required), version (one, required), header (one, optional), trailer (one, optional), message (N, optional), values (N, optional)
 class Protocol(Parsable, Dispatchable):
    def __init__(self):
       super().__init__()

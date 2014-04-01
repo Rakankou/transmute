@@ -41,6 +41,16 @@ def folder_type(path):
    except ValueError as ve:
       raise ArgumentTypeError(ve)
 
+##
+# @name Register
+# @brief An element to register against a Wireshark dissector table.
+# @details XML tag: ws:register
+#          Attributes: table, value
+#             table (required) - The table identifier string.
+#             value (required) - The value to register against
+#          CData: none
+#          Children: none
+#          Parents: protocol, message
 class Register(Parsable):
    def __init__(self):
       super().__init__()
@@ -70,6 +80,15 @@ class Register(Parsable):
    def Validate(self, parent):
       super().Validate(parent)
 
+##
+# @name Expose
+# @brief An element to expose a dissector table.
+# @details XML tag: ws:expose
+#          Attributes: field
+#             field (required) - The field abbreviation to expose.
+#          CData: none
+#          Children: none
+#          Parents: protocol, message
 class Expose(Parsable):
    def __init__(self):
       super().__init__()
@@ -114,8 +133,6 @@ def register(args_parser, xml_parser):
       xml_parser.registerParsable(parsable)
 
 
-
-#
 _ws_text = { 'header_comment'    : "/* \n * File: {{filename}}\n * Description: {{description}}\n * Generated using transmute {transmute_version} Wireshark plugin {plugin_version}\n */\n".format(**{'transmute_version':transmute_version,'plugin_version':version_string}),
              'header_includes'   : '\n'.join(['#include "config.h"',
                                               '#include <glib.h>',
