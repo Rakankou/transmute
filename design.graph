@@ -1,0 +1,8 @@
+digraph {
+   XML -> Parser
+   Parser -> Plugins
+   Plugins -> Parser
+   Parser -> Dispatcher
+   Dispatcher -> Plugins
+   Plugins -> Output
+}

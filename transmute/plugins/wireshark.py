@@ -1,3 +1,9 @@
+##
+# @file transmute/plugins/wireshark.py
+# @brief Contains the Wireshark Dissector generation code.
+# @ingroup plugins
+#
+
 import logging
 import os
 from   argparse                import ArgumentTypeError

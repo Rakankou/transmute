@@ -1,3 +1,48 @@
+##
+# @file transmute.py
+# @brief Entry point for the application.
+#
+# @mainpage
+# Generates source code for  network protocol analysis from XML.
+# @section Usage
+# Transmute is a Python3.x application that accepts an xml specification of a network
+# communication protocol, and outputs source code for consumption by other tools.
+# Currently, only Wireshark 1.10 is supported, but other applications can be supported
+# by adding new plugins. See @ref Design for information about the program design.
+# > usage: transmute.py [options] protofile
+# positional arguments
+# <table>
+# <tr><td>name</td><td>summary</td></tr>
+# <tr><td>protofile</td><td>The protocol specification XML file to use</td></tr>
+# </table>
+# optional arguments
+# <table>
+# <tr><td>short option</td><td>long option</td><td>argument(s)</td><td>summary</td></tr>
+# <tr><td>-h</td><td>--help</td><td></td><td>show the help message and exit</td></tr>
+# <tr><td>-q</td><td>--quiet</td><td></td><td>Suppress output during processing</td></tr>
+# <tr><td>-V</td><td>--verbose</td><td></td><td>Show detailed information during processing</td></tr>
+# <tr><td>-VV</td><td>--extra-verbose</td><td></td><td>Show extra detailed information during processing</td></tr>
+# <tr><td>-v</td><td>--version</td><td></td><td>show program's version number and exit</td></tr>
+# </table>
+# wireshark optional arguments
+# <table>
+# <tr><td>short option</td><td>long option</td><td>argument(s)</td><td>summary</td></tr>
+# <tr><td>-ws</td><td>--wireshark</td><td></td><td>Enable wireshark output</td></tr>
+# <tr><td></td><td>--wireshark-out</td><td>PATH</td><td>Change the wireshark output folder (default is the current working directory)</td></tr>
+# </table>
+# @page Design
+# @dotfile design.graph High-Level Design
+# @section From XML To Anything
+# Transmute aims to output more than just Wireshark protocol dissectors in the future. To this end, the application
+# is structured around an extensible set of plugins that drive the creation of output files. Roughly, this is how
+# Transmute operates:
+# -# Load plugins and parse command line arguments
+#    - Each plugin is responsible for parsing its command line arguments
+# -# Parse XML using the main @ref transmute.Parsing.Parser.Parser "Parser"
+#    - Each plugin will have added @ref transmute.Parsing.Parsable.Parsable "Parsables" to the @ref transmute.Parsing.Parser.Parser "Parser" that can decode different tags
+# -# Direct fully-parsed entities using the main @ref transmute.Dispatch.Dispatcher.Dispatcher "Dispatcher"
+#    - Each plugin will have set up its dispatching behavior according to its arguments
+#    - At this point, any plugin with enabled output will generate that output
 import argparse
 import logging
 import transmute
@@ -22,13 +67,13 @@ def SetVerbosity(quiet, verbose, extra_verbose):
 
 ##
 # @brief The main routine.
-# @details Parses arguments and drives the application accordingly. 
+# @details Parses arguments and drives the application accordingly.
 def main():
    #assign a logger for this routine
    log = logging.getLogger("main")
    args_parser = argparse.ArgumentParser(description="Transform a protocol specification in XML to another representation.", add_help=False)
    #these are the application-level command line arguments
-   args_parser.add_argument('-p',  '--protocol', default='proto.xml',                                                   dest='protofile', help="The protocol specification XML file to use. (default=\"proto.xml\")")
+   args_parser.add_argument('protofile',                                                                                                  help="The protocol specification XML file to use.")
    vrbos_group = args_parser.add_mutually_exclusive_group()
    vrbos_group.add_argument('-q',  '--quiet',    default=False,       action='store_true',                                                help="Suppress output during processing.")
    vrbos_group.add_argument('-V',  '--verbose',  default=False,       action='store_true',                                                help="Show detailed information during processing.")
@@ -46,7 +91,7 @@ def main():
    dispatcher.register_all(args_parser, xml_parser)
    
    #this here to catch -h/--help arguments (and any others that must only be processed after all plugins are loaded)
-   final_args_parser = argparse.ArgumentParser(parents=[args_parser],formatter_class=argparse.RawDescriptionHelpFormatter)
+   final_args_parser = argparse.ArgumentParser(parents=[args_parser],formatter_class=argparse.RawDescriptionHelpFormatter, usage='%(prog)s [options] protofile')
    final_args_parser.parse_args(argv)
    
    #system initialized, begin parsing

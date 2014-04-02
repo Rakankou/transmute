@@ -1,3 +1,7 @@
+##
+# @file transmute/Parsing/Parsable.py
+# @brief Contains base classes representing parsable elements
+#
 from abc import ABCMeta, abstractmethod
 
 __all__ = ["Parsable"]

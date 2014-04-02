@@ -1,3 +1,8 @@
+##
+# @file transmute/plugins/base.py
+# @brief The base functionality plugin.
+# @ingroup plugins
+#
 import logging
 import itertools
 import operator
@@ -130,6 +135,10 @@ class Brief(Parsable, Dispatchable):
    def brief(self, data):
       self._brief = data
    
+   ##
+   # @name __str__
+   # @brief Return the content of the tag's CData
+   # @return the content of the tag's CData
    def __str__(self):
       return self._brief
 

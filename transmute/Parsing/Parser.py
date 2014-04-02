@@ -1,4 +1,7 @@
-#use lists as stacks, with the x[:-1] element as stack top
+##
+# @file transmute/Parsing/Parser.py
+# @brief Contains XML parsing-related base classes
+#
 import logging
 from collections import UserList
 from xml.dom     import pulldom
@@ -28,12 +31,25 @@ class ValidationError(ValueError):
 # @name Parser
 # @brief Class encapsulating an XML parser.
 class Parser(object):
+   ##
+   # @class Stack
+   # @brief A simple stack class based on the UserList
    class Stack(UserList):
+      ##
+      # @name peek
+      # @brief Peek at the top element of the stack.
       def peek(self):
          return self[-1]
+      ##
+      # @name push
+      # @brief Push an element to the top of the stack
+      # @param data [in] The element to push
       def push(self, data):
          self.append(data)
    
+   ##
+   # @name __init__
+   # @brief Construct an empty Parser
    def __init__(self):
       self.__parsables = dict()
       self.log         = logging.getLogger('transmute.Parser.Parser')
