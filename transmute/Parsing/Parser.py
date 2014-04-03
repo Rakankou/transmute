@@ -7,8 +7,12 @@ from collections import UserList
 from xml.dom     import pulldom
 from .Parsable    import Parsable
 
+##
+# @brief All of the items exported by this module
 __all__ = ["Parser", "ParseError"]
 
+##
+# @brief The module's top-level logger
 _logger = logging.getLogger('transmute.Parser')
 
 ##

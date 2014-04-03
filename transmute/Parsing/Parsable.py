@@ -4,6 +4,8 @@
 #
 from abc import ABCMeta, abstractmethod
 
+##
+# @brief All of the items exported by this module
 __all__ = ["Parsable"]
 
 ##

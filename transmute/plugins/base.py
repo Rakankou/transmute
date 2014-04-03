@@ -12,6 +12,8 @@ from   ..Parsing.Parsable      import Parsable
 from   ..Parsing.Parser        import Parser, ParseError, ValidationError
 from   ..Dispatch.Dispatchable import Dispatchable
 
+##
+# @brief All of the items exported by this module
 __all__  = ["register", "dispatch", "Protocol",  "Description",
             "Brief",    "Detail",   "Values",    "Value",
             "Message",  "Field",    "Position",  "Bits",
@@ -19,10 +21,16 @@ __all__  = ["register", "dispatch", "Protocol",  "Description",
             "Header",   "Trailer",  "Version"
            ]
 
+##
+# @brief The module's top-level logger
 _logger  = logging.getLogger('transmute.base')
 
+##
+# @brief The XML prefix for each XML element contained in this module.
 _prefix = ''
 
+##
+# @brief A monotonically increasing counter to ensure anonymous Values types have a unique identifier
 _anon_counter = itertools.count(0,1)
 
 ##
@@ -88,6 +96,10 @@ class Detail(Parsable, Dispatchable):
    def detail(self, data):
       self._detail = data
    
+   ##
+   # @name __str__
+   # @brief Return the content of the tag's CData
+   # @return the content of the tag's CData
    def __str__(self):
       return self._detail
 
@@ -128,10 +140,18 @@ class Brief(Parsable, Dispatchable):
       super().Validate(parent)
    
    @property
+   ##
+   # @name brief
+   # @brief Return the content of the tag's CData
+   # @details This is equivalent to calling str(this)
    def brief(self):
       return self._brief
    
    @brief.setter
+   ##
+   # @name brief
+   # @brief Override the content of the tag's CData
+   # @param data [in] The new data to use
    def brief(self, data):
       self._brief = data
    
@@ -194,9 +214,15 @@ class Description(Parsable, Dispatchable):
       super().Validate(parent)
    
    @property
+   ##
+   # @brief Return the name attribute of this element
+   # @return the name attribute of this element
    def name(self):
       return self._name
    @name.setter
+   ##
+   # @brief Override the name attribute of this element
+   # @param value [in] The value to use.
    def name(self, value):
       self._name = value
    

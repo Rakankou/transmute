@@ -16,19 +16,35 @@ from   .base                   import *
 from   ..Dispatch.Dispatchable import Dispatchable, DispatchError
 
 ##
-# @brief The application version number.
+# @brief The module version number.
 version = (0, 0, '1a')
 
+##
+# @brief The module version number as a formatted string
 version_string = '.'.join(str(v) for v in version)
 
+##
+# @brief All of the items exported by this module
 __all__  = ["register", "Register", "Expose", "dispatch"]
 
+##
+# @brief The module's top-level logger
 _logger  = logging.getLogger('transmute.wireshark')
 
+##
+# @brief The XML prefix for each XML element contained in this module.
 _prefix = 'ws'
 
+##
+# @brief The parsed command line arguments
 args_ns = None
 
+##
+# @name force_folder
+# @brief Ensure a directory exists
+# @param path [in] The folder to check or create
+# @return str path
+# @throws ValueError When path already exists and is not a directory or when it cannot be created
 def force_folder(path):
    if os.path.isdir(path):
       return path
@@ -41,6 +57,12 @@ def force_folder(path):
          raise ValueError("Cannot create directory '{}'".format(path))
    return path
 
+##
+# @name folder_type
+# @brief An argparse type for directories
+# @param path [in] The specified folder
+# @return str path
+# @throws ArgumentTypeError When path is not valid
 def folder_type(path):
    try:
       return force_folder(path)
@@ -138,7 +160,8 @@ def register(args_parser, xml_parser):
                    ]:
       xml_parser.registerParsable(parsable)
 
-
+##
+# @brief A collection of format strings used to construct Wireshark output.
 _ws_text = { 'header_comment'    : "/* \n * File: {{filename}}\n * Description: {{description}}\n * Generated using transmute {transmute_version} Wireshark plugin {plugin_version}\n */\n".format(**{'transmute_version':transmute_version,'plugin_version':version_string}),
              'header_includes'   : '\n'.join(['#include "config.h"',
                                               '#include <glib.h>',
@@ -164,6 +187,8 @@ _ws_text = { 'header_comment'    : "/* \n * File: {{filename}}\n * Description: 
              'header_field'      : '''{indent}{{&hf_{name},\n{indent}{indent}{{"{brief}", "{abbreviation}", FT_{ftype}, BASE_{btype}, {VALS}, {mask},\n{indent}{indent}{indent}"{detail}", HFILL}}}}''',
            }
 
+##
+# @brief A lookup table of Wireshark base ftypes from Transmute field types
 _ws_ftypes = {'undecoded'         : 'NONE',
               'bool'              : 'BOOLEAN',
               'boolean'           : 'BOOLEAN',
@@ -186,14 +211,30 @@ _ws_ftypes = {'undecoded'         : 'NONE',
 def abbr2name(abbreviation):
    return abbreviation.replace('.','_').replace('-','_')
 
+##
+# @name ws_chunks2bytes
+# @brief Translates a given specification of chunks to bytes
+# @param chunksize [in] The size of each chunk in bits
+# @param i [in] The number of chunks
+# @return int The number of bytes represented
 def ws_chunks2bytes(chunksize, i):
    if chunksize % 8 or chunksize <= 0:
       raise ValueError(chunksize)
    return int(round(i * (chunksize / 8), 0))
 
+##
+# @name ws_has_section
+# @brief Returns whether or not a given dispatchable has any usable data in the given attribute
+# @return whether or not a given dispatchable has any usable data in the given attribute, or None
 def ws_has_section(dispatchable_obj, section):
    return hasattr(dispatchable_obj, section) and getattr(dispatchable_obj, section) is not None
 
+##
+# @name ws_field_ftype
+# @brief Constructs the full wireshark ftype (FT_*) for the given element
+# @param f [in] The dispatchable to convert
+# @return str The Wireshark ftype of f
+# @throws DispatchError when f cannot be assigned a Wireshark ftype
 def ws_field_ftype(f):
    ftype = _ws_ftypes[f.ftype if ws_has_section(f, 'ftype') else 'undecoded']
    if 'INT' in ftype:
@@ -210,6 +251,11 @@ def ws_field_ftype(f):
          raise DispatchError("<{}> with unsupported bit length {}".format(f.getTag(), bitlength))
    return ftype
 
+##
+# @name ws_field_size
+# @brief Returns the size of a given field in bytes
+# @param f [in] The dispatchable to convert
+# @return int The size of f in bytes
 def ws_field_size(f):
    field_type = ws_field_ftype(f)
    if   (('FLOAT' in field_type) or
@@ -223,6 +269,11 @@ def ws_field_size(f):
       return 8
    return ws_chunks2bytes(f.chunksize, f.position.chunklength)
 
+##
+# @name ws_field_basetype
+# @brief Guesses the correct numeric base for integral fields
+# @param f [in] The field to inspect
+# @return str The * in BASE_*
 def ws_field_basetype(f):
    bitlength = f.position.bitlength
    ftype = _ws_ftypes[f.ftype if ws_has_section(f, 'ftype') else 'undecoded']

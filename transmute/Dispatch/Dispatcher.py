@@ -15,7 +15,11 @@ import os
 import logging
 import importlib
 
+##
+# @brief All of the items exported by this module
 __all__ = ["Dispatcher", "DispatchError"]
+##
+# @brief The module's top-level logger
 _logger = logging.getLogger('transmute.Dispatch')
 
 ##
