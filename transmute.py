@@ -92,7 +92,7 @@ def main():
    
    #this here to catch -h/--help arguments (and any others that must only be processed after all plugins are loaded)
    final_args_parser = argparse.ArgumentParser(parents=[args_parser],formatter_class=argparse.RawDescriptionHelpFormatter, usage='%(prog)s [options] protofile')
-   final_args_parser.parse_args(argv)
+   final_args_parser.parse_args(argv + [ns.protofile])
    
    #system initialized, begin parsing
    log.info("Starting parser")
