@@ -623,7 +623,7 @@ def write_makefile_am(folder, dispatchable_obj):
                              'plugin.c: $(REGISTER_SRC_FILES) Makefile.common $(top_srcdir)/tools/make-dissector-reg.py',
                              '\techo Making plugin.c with python ; \\',
                              '\t$(PYTHON) $(top_srcdir)/tools/make-dissector-reg.py $(srcdir) \\',
-                             '\t    plugin $(REGISTER_SRC_FILES) ; \\',
+                             '\t    plugin $(REGISTER_SRC_FILES) ;',
                              '',
                              '',
                              'CLEANFILES = \\',
