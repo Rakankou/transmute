@@ -350,7 +350,18 @@ def write_dissect_fxn(dispatchable_obj, cfile):
                           '{indent}proto_tree       *pTree  = NULL;',
                           '{indent}proto_item       *psubI  = NULL;',
                           '{indent}proto_tree       *psubT  = NULL;',
-                          '{indent}dissector_table_t pTable = NULL;\n'
+                          '{indent}dissector_table_t pTable = NULL;',
+                          '(void)(value);',
+                          '(void)(tvbr);',
+                          '(void)(pItem);',
+                          '(void)(pTree);',
+                          '(void)(psubI);',
+                          '(void)(psubT);',
+                          '(void)(pTable);',
+                          '(void)(tvb);',
+                          '(void)(pinfo);',
+                          '(void)(tree);',
+                          ''
                          ]).format(indent = _ws_text['indent'],
                                    name   = abbr2name(dispatchable_obj.abbreviation)
                                   ))
@@ -888,13 +899,13 @@ def dispatch(dispatchable_obj):
             
             cfile.write('/* Value Strings */\n')
             for vs in namespace['value_strings'].values():
-               hfile.write(var_decl(vs))
+               hfile.write(var_decl(' '.join(['extern', vs])))
                cfile.write(vs)
             cfile.write('\n')
             
             cfile.write('/* True/False Strings */\n')
             for tfs in namespace['true_false_strings'].values():
-               hfile.write(var_decl(tfs))
+               hfile.write(' '.join(['extern', var_decl(tfs)]))
                cfile.write(tfs)
             cfile.write('\n')
             
