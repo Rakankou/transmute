@@ -554,7 +554,7 @@ def write_cmake_file(folder, dispatchable_obj):
                                  '',
                                  'if(ENABLE_APPLICATION_BUNDLE)',
                                  '   set_target_properties({} PROPERTIES'.format(dispatchable_obj.abbreviation),
-                                 '      LIBRARY_OUTPUT_DIRECTORY $(CMAKE_BINARY_DIR}/run/Wireshark.app/Contents/PlugIns/wireshark',
+                                 '      LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/run/Wireshark.app/Contents/PlugIns/wireshark',
                                  '   )',
                                  'endif()',
                                  '',
