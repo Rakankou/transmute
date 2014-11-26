@@ -548,7 +548,7 @@ def write_cmake_file(folder, dispatchable_obj):
                                  ')',
                                  'set_target_properties({} PROPERTIES'.format(dispatchable_obj.abbreviation),
                                  '   PREFIX ""',
-                                 '   LINK_FLAGS "${WS_LINK_FLAGS}")',
+                                 '   LINK_FLAGS "${WS_LINK_FLAGS}"',
                                  '   FOLDER "Plugins"',
                                  ')'
                                  '',
