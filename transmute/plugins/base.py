@@ -470,11 +470,9 @@ class Bits(Parsable, Dispatchable):
       else:
          mask = 0
          mlen = self._end - self.start + 1
-         outshift,inshift = (operator.rshift,operator.lshift) if bit0 == Constants.bit0['LSb'] else (operator.lshift,operator.rshift)
          if mlen >= 1:
-            mask = int('1' * chunksize, 2)
-            mask = outshift(mask, chunksize - mlen)
-            mask = inshift(mask, chunksize - (self.start + mlen))
+            mask = int('1' * mlen, 2)
+            mask = mask << (self.start if bit0 == Constants.bit0['LSb'] else (chunksize - (self.start + mlen)))
          return mask
    
    def __len__(self):
