@@ -422,7 +422,7 @@ class Bits(Parsable, Dispatchable):
       self._mask = None
       super().Start(attrs, evt_stream, node, parser)
       try:
-         self.start = int(attrs['start'])
+         self.start = int(attrs['start'], 0)
       except KeyError:
          raise ParseError("Missing start attribute for <{}>".format(self.getTag()))
       except ValueError as ve:
@@ -432,12 +432,12 @@ class Bits(Parsable, Dispatchable):
          raise ParseError("<{}> with both end and mask attributes".format(self.getTag()))
       elif 'end' in attrs.keys():
          try:
-            self._end = int(attrs['end'])
+            self._end = int(attrs['end'], 0)
          except ValueError as ve:
             raise ParseError("Invalid end attribute for <{}> '{}'".format(self.getTag(), ve))
       elif 'mask' in attrs.keys():
          try:
-            self._end = int(attrs['mask'])
+            self._mask = int(attrs['mask'], 0)
          except ValueError as ve:
             raise ParseError("Invalid mask attribute for <{}> '{}'".format(self.getTag(), ve))
       else:
@@ -504,7 +504,7 @@ class Chunks(Parsable, Dispatchable):
       self.length = None
       super().Start(attrs, evt_stream, node, parser)
       try:
-         self.length = int(attrs['length'])
+         self.length = int(attrs['length'], 0)
       except KeyError:
          raise ParseError("Missing length attribute for <{}>".format(self.getTag()))
       except ValueError as ve:
@@ -557,7 +557,7 @@ class Position(Parsable, Dispatchable):
       self._chunksize = None
       super().Start(attrs, evt_stream, node, parser)
       try:
-         self.index = int(attrs['index'])
+         self.index = int(attrs['index'], 0)
       except KeyError:
          raise ParseError("Missing index attribute for <{}>".format(self.getTag()))
       except ValueError as ve:
