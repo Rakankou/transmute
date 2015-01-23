@@ -143,7 +143,7 @@ class Expose(Parsable):
    
    def Validate(self, parent):
       super().Validate(parent)
-      if parent.getTag() == Protocol.tag():
+      if parent.getTag() in [Protocol.tag(), Message.tag()]:
          if not parent.hasField(self.field):
             raise ValidationError("<{}> uses unknown field '{}'".format(self.getTag(), self.field))
       else:
@@ -414,7 +414,7 @@ def write_dissect_fxn(dispatchable_obj, cfile):
                                                                                                                                 length = ws_chunks2bytes(f.position.chunksize, f.position.chunklength),
                                                                                                                                 offset = f.position.index
                                                                                                                                ))
-   if ws_has_section(dispatchable_obj, 'messages'):
+   if any(c.getTag() == Expose.tag() for c in dispatchable_obj.children):
       cfile.write('{indent}value = tvb_length(tvb);\n'.format(indent = _ws_text['indent']))
       if ws_has_section(dispatchable_obj, 'header'):
          cfile.write('{indent}value -= {length}; //header length\n'.format(indent = _ws_text['indent'], length = ws_chunks2bytes(dispatchable_obj.header.position.chunksize, dispatchable_obj.header.position.chunklength)))

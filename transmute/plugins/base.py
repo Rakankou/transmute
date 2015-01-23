@@ -1070,6 +1070,21 @@ class Message(Parsable, Dispatchable):
       if not rv and len(self._fields) > 0:
          rv = True
       return rv
+   
+   def getField(self, abbreviation):
+      self.log.debug("Searching for {} in {}".format(abbreviation, self.abbreviation))
+      try:
+         f = self.fields[abbreviation]
+      except KeyError:
+         f = None
+      if f is None and self.header is not None:
+         f = search(OrderedDict(((self.header.abbreviation, self.header),)))
+      if f is None and self.trailer is not None:
+         f = search(OrderedDict(((self.trailer.abbreviation, self.trailer),)))
+      return f
+   
+   def hasField(self, abbreviation):
+      return abbreviation in self.fields or abbreviation in self.header.fields or abbreviation in self.trailer.fields
 
 ##
 # @name Header
