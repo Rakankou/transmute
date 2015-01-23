@@ -953,6 +953,13 @@ class Message(Parsable, Dispatchable):
       self.header       = None
       self.trailer      = None
             
+      if 'endian' in attrs.keys():
+         try:
+            self._endian = Constants.endian[attrs['endian']]
+         except KeyError as ke:
+            self._endian = None
+            raise ParseError("Invalid endian attribute '{}' in <{}>".format(ke, self.getTag()))
+
       for element in parser.parseString(parser.getSubXml(evt_stream, node)):
          self.Child(element)
       
