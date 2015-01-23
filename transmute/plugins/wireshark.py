@@ -11,7 +11,7 @@ from   sys                     import argv
 from   collections             import OrderedDict
 from   ..                      import version_string as transmute_version
 from   ..Parsing.Parsable      import Parsable
-from   ..Parsing.Parser        import ParseError
+from   ..Parsing.Parser        import ParseError, ValidationError
 from   .base                   import *
 from   ..Dispatch.Dispatchable import Dispatchable, DispatchError
 
