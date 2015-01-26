@@ -1052,7 +1052,11 @@ class Message(Parsable, Dispatchable):
    @property
    def position(self):
       keygen = (k for k in self._fields.values())
-      pos = next(keygen).position
+      pos = Position.create(0, 0, self.chunksize)
+      try:
+         pos = next(keygen).position
+      except StopIteration:
+         pass
       for f in keygen:
          pos = pos | f.position
       if self.header is not None:
