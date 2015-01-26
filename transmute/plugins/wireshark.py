@@ -456,7 +456,7 @@ def write_dissect_fxn(dispatchable_obj, cfile):
          tfield = dispatchable_obj.getField(table.field)
          cfile.write('{indent}{value_expr}\n'.format(indent     = _ws_text['indent'],
                                                      value_expr = ws_field_value(tfield)))
-         cfile.write('{indent}if(pTable)\n{indent}{{\n{indent}{indent}dissector_try_uint(pTable, value, tvbr, pinfo, pTree);\n{indent}}}\n'.format(indent = _ws_text['indent']))
+         cfile.write('{indent}if(pTable)\n{indent}{{\n{indent}{indent}dissector_try_uint(pTable, value, tvbr, pinfo, tree);\n{indent}}}\n'.format(indent = _ws_text['indent']))
    if ws_has_section(dispatchable_obj, 'trailer'):
       cfile.write('{indent}dissect_{name}(tvb, pinfo, pTree);\n'.format(indent = _ws_text['indent'],
                                                                         name   = abbr2name(dispatchable_obj.trailer.abbreviation)
