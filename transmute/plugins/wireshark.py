@@ -478,7 +478,7 @@ def write_register_fxn(dispatchable_obj, cfile):
          header_fields = ',\n'.join([header_fields, ',\n'.join(ws_header_field(f) for f in dispatchable_obj.trailer.fields.values())])
       if isinstance(dispatchable_obj, Message):
          header_fields = ',\n'.join([header_fields, ws_header_field(dispatchable_obj)])
-      cfile.write(header_fields.lstrip(','))
+      cfile.write(header_fields.lstrip(',').replace('\n,\n','\n'))
       cfile.write('\n{indent}}};\n'.format(**{'indent':_ws_text['indent']}))
    cfile.write('{indent}static gint *ett[] = {{\n'.format(**{'indent':_ws_text['indent']}))
    cfile.write('{indent}{indent}&ett_{ett}'.format(**{'indent':_ws_text['indent'], 'ett':abbr2name(dispatchable_obj.abbreviation)}))
