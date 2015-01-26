@@ -333,18 +333,18 @@ def ws_header_field(f):
                                s      = _ws_text['header_field'].format(**attrs))
 
 def ws_field_value(f, return_field='value'):
-   bitoffs   = f.position.bitstart + (f.position.chunksize * f.position.index)
-   bitlen    = f.position.bitlength
+   byteoffs  = f.position.index * (f.chunksize // 8)
    enc       = "ENC_LITTLE_ENDIAN" if f.endian == Constants.endian['little'] else "ENC_BIG_ENDIAN"
    bitfamily = ws_bit_family(f)
    shift     = f.position.bitstart if f.bit0 == Constants.bit0['LSb'] else (f.position.chunksize - f.position.bitstart)
-   return '{return_field} = tvb_get_bits{bitfamily}(tvb, {bitoffs}, {bitlen}, {enc}){shiftop}{shift};'.format(
-      bitoffs   = bitoffs,
-      bitlen    = bitlen,
-      enc       = enc,
+   andv      = hex(f.position.bitmask)
+   return '{return_field} = (tvb_get_guint{bitfamily}(tvb, {byteoffs}{enc}) & {andv}){shiftop}{shift};'.format(
+      byteoffs  = byteoffs,
+      enc       = ' '.join((',', enc)) if bitfamily > 8 else '',
       bitfamily = bitfamily,
       shift     = str(shift) if shift else '',
       shiftop   = ' >> ' if shift else '',
+      andv      = andv,
       return_field = return_field)
 
 def ws_include_guard(file_obj):
