@@ -1078,9 +1078,15 @@ class Message(Parsable, Dispatchable):
       except KeyError:
          f = None
       if f is None and self.header is not None:
-         f = search(OrderedDict(((self.header.abbreviation, self.header),)))
+         try:
+            f = self.header.getField(abbreviation)
+         except KeyError:
+            f = None
       if f is None and self.trailer is not None:
-         f = search(OrderedDict(((self.trailer.abbreviation, self.trailer),)))
+         try:
+            f = self.trailer.getField(abbreviation)
+         except KeyError:
+            f = None
       return f
    
    def hasField(self, abbreviation):
