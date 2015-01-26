@@ -230,6 +230,30 @@ def ws_has_section(dispatchable_obj, section):
    return hasattr(dispatchable_obj, section) and getattr(dispatchable_obj, section) is not None
 
 ##
+# @name ws_bit_family
+# @brief Returns the bit family of the field.
+# @return The bit family of the field. One of 8, 16, 24, 32, 64
+def ws_bit_family(f):
+   ftype = _ws_ftypes[f.ftype if ws_has_section(f, 'ftype') else 'undecoded']
+   if 'INT' in ftype:
+      bitlength = f.position.bitlength
+      if 1 <= bitlength <= 8:
+         return 8
+      elif bitlength <= 16:
+         return 16
+      elif bitlength <= 24:
+         return 24
+      elif bitlength <= 32:
+         return 32
+      elif bitlength <= 64:
+         return 64
+   elif 'FLOAT' in ftype:
+      return 32
+   elif 'DOUBLE' in ftype:
+      return 64
+   raise DispatchError("<{}> can't deduce bit family for ftype {}".format(f.getTag(), ftype))
+
+##
 # @name ws_field_ftype
 # @brief Constructs the full wireshark ftype (FT_*) for the given element
 # @param f [in] The dispatchable to convert
@@ -238,17 +262,7 @@ def ws_has_section(dispatchable_obj, section):
 def ws_field_ftype(f):
    ftype = _ws_ftypes[f.ftype if ws_has_section(f, 'ftype') else 'undecoded']
    if 'INT' in ftype:
-      bitlength = f.position.bitlength
-      if   1  <= bitlength <= 8:
-         ftype = ''.join((ftype, '8'))
-      elif       bitlength <= 16:
-         ftype = ''.join((ftype, '16'))
-      elif       bitlength <= 24:
-         ftype = ''.join((ftype, '24'))
-      elif       bitlength <= 32:
-         ftype = ''.join((ftype, '32'))
-      else:
-         raise DispatchError("<{}> with unsupported bit length {}".format(f.getTag(), bitlength))
+      ftype = ''.join((ftype, str(ws_bit_family(f))))
    return ftype
 
 ##
@@ -317,6 +331,21 @@ def ws_header_field(f):
    
    return '{indent}{s}'.format(indent = _ws_text['indent'],
                                s      = _ws_text['header_field'].format(**attrs))
+
+def ws_field_value(f, return_field='value'):
+   bitoffs   = f.position.bitstart + (f.position.chunksize * f.position.index)
+   bitlen    = f.position.bitlength
+   enc       = "ENC_LITTLE_ENDIAN" if f.endian == Constants.endian['little'] else "ENC_BIG_ENDIAN"
+   bitfamily = ws_bit_family(f)
+   shift     = f.position.bitstart if f.bit0 == Constants.bit0['LSb'] else (f.position.chunksize - f.position.bitstart)
+   return '{return_field} = tvb_get_bits{bitfamily}(tvb, {bitoffs}, {bitlen}, {enc}){shiftop}{shift};'.format(
+      bitoffs   = bitoffs,
+      bitlen    = bitlen,
+      enc       = enc,
+      bitfamily = bitfamily,
+      shift     = str(shift) if shift else '',
+      shiftop   = ' >> ' if shift else '',
+      return_field = return_field)
 
 def ws_include_guard(file_obj):
    return os.path.basename('{}_'.format(file_obj.name.upper().replace('-','_').replace('.','_')))
@@ -388,11 +417,8 @@ def write_dissect_fxn(dispatchable_obj, cfile):
       for f in dispatchable_obj.fields.values():
          if f.ftype in ('weighted', 'unsigned weighted'):
             sz = ws_field_size(f)
-            cfile.write('{indent}value = tvb_get_bits32(tvb, {bitoffs}, {bitlen}, {enc});\n'.format(indent  = _ws_text['indent'],
-                                                                                                    bitoffs = f.position.bitstart + (f.position.chunksize * f.position.index),
-                                                                                                    bitlen  = f.position.bitlength,
-                                                                                                    enc     = "ENC_LITTLE_ENDIAN" if f.endian == Constants.endian['little'] else "ENC_BIG_ENDIAN"
-                                                                                                   ))
+            cfile.write('{indent}{value_expr}\n'.format(indent     = _ws_text['indent'],
+                                                        value_expr = ws_field_value(f)))
             if   sz == 2:
                cfile.write('{indent}value = ntohs(value);\n'.format(indent = _ws_text['indent']))
             elif sz == 4:
@@ -428,11 +454,8 @@ def write_dissect_fxn(dispatchable_obj, cfile):
                                                                                  name   = table.field
                                                                                 ))
          tfield = dispatchable_obj.getField(table.field)
-         cfile.write('{indent}value = tvb_get_bits32(tvb, {bitoffs}, {bitlen}, {enc});\n'.format(indent  = _ws_text['indent'],
-                                                                                                 bitoffs = tfield.position.bitstart + (tfield.position.chunksize * tfield.position.index),
-                                                                                                 bitlen  = tfield.position.bitlength,
-                                                                                                 enc     = "ENC_LITTLE_ENDIAN" if tfield.endian == Constants.endian['little'] else "ENC_BIG_ENDIAN"
-                                                                                                ))
+         cfile.write('{indent}{value_expr}\n'.format(indent     = _ws_text['indent'],
+                                                     value_expr = ws_field_value(tfield)))
          cfile.write('{indent}if(pTable)\n{indent}{{\n{indent}{indent}dissector_try_uint(pTable, value, tvbr, pinfo, pTree);\n{indent}}}\n'.format(indent = _ws_text['indent']))
    if ws_has_section(dispatchable_obj, 'trailer'):
       cfile.write('{indent}dissect_{name}(tvb, pinfo, pTree);\n'.format(indent = _ws_text['indent'],
