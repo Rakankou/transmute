@@ -1172,6 +1172,11 @@ class Version(Parsable, Dispatchable):
       super().Validate(parent)
       if len(self._v) == 0:
          raise ValidationError("<{}> with no data".format(self.getTag()))
+      for slice in self._v:
+         try:
+            int(self._v[slice], 10)
+         except ValueError as ve:
+            raise ValidationError("<{}> with illegal {} version: '{}'. Must be a decimal integer".format(self.getTag(), slice, self._v[slice]))
    
    @property
    def data(self):
