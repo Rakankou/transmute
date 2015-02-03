@@ -1094,7 +1094,13 @@ class Message(Parsable, Dispatchable):
       return f
    
    def hasField(self, abbreviation):
-      return abbreviation in self.fields or abbreviation in self.header.fields or abbreviation in self.trailer.fields
+      if self.fields is not None and abbreviation in self.fields:
+         return True
+      elif self.header is not None and abbreviation in self.header.fields:
+         return True
+      elif self.trailer is not None and abbreviation in self.trailer.fields:
+         return True
+      return False
 
 ##
 # @name Header
