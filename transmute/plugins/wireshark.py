@@ -292,12 +292,12 @@ def ws_field_basetype(f):
    bitlength = f.position.bitlength
    ftype = _ws_ftypes[f.ftype if ws_has_section(f, 'ftype') else 'undecoded']
    if 'INT' in ftype:
-      if   bitlength % 4 == 0:
-         return 'HEX'
-      elif bitlength % 3 == 0:
-         return 'OCT'
-      else:
-         return 'DEC'
+      if 'UINT' in ftype:
+         if   bitlength % 4 == 0:
+            return 'HEX'
+         elif bitlength % 3 == 0:
+            return 'OCT'
+      return 'DEC'
    else:
       return 'NONE'
 
