@@ -253,6 +253,12 @@ def ws_bit_family(f):
       return 64
    raise DispatchError("<{}> can't deduce bit family for ftype {}".format(f.getTag(), ftype))
 
+def ws_gint_family(f):
+   family = ws_bit_family(f)
+   if family == 24:
+      family = 32
+   return family
+
 ##
 # @name ws_field_ftype
 # @brief Constructs the full wireshark ftype (FT_*) for the given element
@@ -301,29 +307,36 @@ def ws_field_basetype(f):
    else:
       return 'NONE'
 
-def ws_header_field(f):
+def ws_header_field(f, abbrAppend='', descrAppend='', ftypeOverride=None):
+   abbr = ''.join([f.description.abbreviation, abbrAppend])
+   brief = ''.join([str(f.description.brief), descrAppend])
+   detail = ''.join([str(f.description.detail), descrAppend])
    attrs = {'indent'      : _ws_text['indent'],
-            'name'        : abbr2name(f.description.abbreviation),
-            'brief'       : f.description.brief,
-            'abbreviation': f.description.abbreviation,
+            'name'        : abbr2name(abbr),
+            'brief'       : brief,
+            'abbreviation': abbr,
             'ftype'       : _ws_ftypes[f.ftype if hasattr(f, 'ftype') else 'undecoded'],
             'btype'       : 'NONE',
             'VALS'        : 'NULL',
             'mask'        : 0x0,
-            'detail'      : f.description.detail
+            'detail'      : detail
            }
    
    attrs['ftype'] = ws_field_ftype(f)
    attrs['btype'] = ws_field_basetype(f)
+
+   if ftypeOverride is not None:
+      attrs['ftype'] = ftypeOverride
+      attrs['btype'] = 'NONE'
    
    if isinstance(f, Field) and attrs['ftype'] != 'NONE':
       if 'enum' in f.ftype:
          attrs['VALS'] = 'VALS({vstr}_{vname})'.format(vstr  = 'tfs' if is_tfs(f.values) else 'vs',
-                                                       vname = f.values.name if f.values.name else abbr2name(f.description.abbreviation)
+                                                       vname = f.values.name if f.values.name else abbr2name(abbr)
                                                       )
       attrs['mask'] = hex(f.position.bitmask)
-      if((attrs['ftype'] == 'DOUBLE' and attrs['mask'] == '0xffffffffffffffff') or
-         (attrs['ftype'] == 'FLOAT'  and attrs['mask'] == '0xffffffff'        ) or
+      if((attrs['ftype'] == 'DOUBLE') or
+         (attrs['ftype'] == 'FLOAT' ) or
          ('INT32' in attrs['ftype']  and attrs['mask'] == '0xffffffff'        ) or
          ('INT16' in attrs['ftype']  and attrs['mask'] == '0xffff'            ) or
          ('INT8'  in attrs['ftype']  and attrs['mask'] == '0xff'              )):
@@ -333,22 +346,43 @@ def ws_header_field(f):
                                s      = _ws_text['header_field'].format(**attrs))
 
 def ws_field_value(f, return_field='value'):
-   byteoffs  = f.position.index * (f.chunksize // 8)
-   enc       = "ENC_LITTLE_ENDIAN" if f.endian == Constants.endian['little'] else "ENC_BIG_ENDIAN"
-   bitfamily = ws_bit_family(f)
-   shift     = f.position.bitstart if f.bit0 == Constants.bit0['LSb'] else (f.position.chunksize - f.position.bitstart)
-   andv      = hex(f.position.bitmask)
-   return '{return_field} = (tvb_get_guint{bitfamily}(tvb, {byteoffs}{enc}) & {andv}){shiftop}{shift};'.format(
-      byteoffs  = byteoffs,
-      enc       = ' '.join((',', enc)) if bitfamily > 8 else '',
-      bitfamily = bitfamily,
-      shift     = str(shift) if shift else '',
-      shiftop   = ' >> ' if shift else '',
-      andv      = andv,
-      return_field = return_field)
+   attrs = {'byteoffs'     : f.position.index * (f.chunksize // 8),
+            'enc'          : "ENC_LITTLE_ENDIAN" if f.endian == Constants.endian['little'] else "ENC_BIG_ENDIAN",
+            'bitfamily'    : ws_bit_family(f),
+            'shift'        : f.position.bitstart if f.bit0 == Constants.bit0['LSb'] else (f.position.chunksize - f.position.bitstart),
+            'andv'         : hex(f.position.bitmask),
+            'scale_expr'   : '',
+            'sign_cast'    : '',
+            'sign_expr'    : '',
+            'return_field' : return_field,
+            'intfamily'    : ws_gint_family(f)
+           }
+   attrs['enc']     = ' '.join((',', attrs['enc'])) if attrs['bitfamily'] > 8 else ''
+   attrs['shiftop'] = ' >> ' if attrs['shift'] else ''
+   if attrs['shift'] == 0:
+      attrs['shift'] = ''
+   if ('weighted' in f.ftype or 'int' in f.ftype) and 'unsigned' not in f.ftype:
+      bits_constant = '0x{{:F>{famwidth}X}}'.format(famwidth=attrs['intfamily']//4)
+      attrs['sign_bits'] = bits_constant.format(int('1' * attrs['bitfamily'], 2) ^ (int(attrs['andv'], 16) >> (int(attrs['shift']) + 1 if attrs['shift'] else 1)))
+      attrs['sign_cast'] = '(gint{intfamily})'.format(**attrs)
+      sign_expr = ' | (((tvb_get_guint{bitfamily}(tvb, {byteoffs}{enc}) & {andv}{shiftop}{shift}) & {sign_bits}) ? {sign_bits} : 0)'.format(**attrs)
+      attrs['sign_expr'] = sign_expr
+   if 'weighted' in f.ftype:
+      scale   = ws_float_value(f.weight.lsb)
+      voffset = f.weight.offset
+      attrs['scale_expr'] = ' * {scale} + {offset}'.format(scale  = scale,
+                                                           offset = voffset
+                                                          )
+   return '{return_field} = ({sign_cast}(((tvb_get_guint{bitfamily}(tvb, {byteoffs}{enc}) & {andv}){shiftop}{shift}){sign_expr})){scale_expr}'.format(**{k:str(attrs[k]) for k in attrs})
 
 def ws_include_guard(file_obj):
    return os.path.basename('{}_'.format(file_obj.name.upper().replace('-','_').replace('.','_')))
+
+def ws_float_value(f):
+   rv = '{:.18F}'.format(f).rstrip('0')
+   if rv.endswith('.'):
+      rv = ''.join([rv,'0'])
+   return rv
 
 def is_tfs(e):
    return (len(e) == 2) and (tuple(e.values[k] for k in e.values) in [(0,1), (1,0)])
@@ -373,14 +407,16 @@ def write_dissect_fxn(dispatchable_obj, cfile):
       for msg in dispatchable_obj.messages:
          write_dissect_fxn(dispatchable_obj.messages[msg], cfile)
    cfile.write('{decl}\n{{\n'.format(**{'decl':_ws_text['dissect_fxn_decl'].format(name=abbr2name(dispatchable_obj.abbreviation))}))
-   cfile.write('\n'.join(['{indent}gint32            value  = 0;',
-                          '{indent}tvbuff_t         *tvbr   = NULL;',
-                          '{indent}proto_item       *pItem  = NULL;',
-                          '{indent}proto_tree       *pTree  = NULL;',
-                          '{indent}proto_item       *psubI  = NULL;',
-                          '{indent}proto_tree       *psubT  = NULL;',
-                          '{indent}dissector_table_t pTable = NULL;',
+   cfile.write('\n'.join(['{indent}gint32            value    = 0;',
+                          '{indent}double            dblValue = 0;',
+                          '{indent}tvbuff_t         *tvbr     = NULL;',
+                          '{indent}proto_item       *pItem    = NULL;',
+                          '{indent}proto_tree       *pTree    = NULL;',
+                          '{indent}proto_item       *psubI    = NULL;',
+                          '{indent}proto_tree       *psubT    = NULL;',
+                          '{indent}dissector_table_t pTable   = NULL;',
                           '(void)(value);',
+                          '(void)(dblValue);',
                           '(void)(tvbr);',
                           '(void)(pItem);',
                           '(void)(pTree);',
@@ -415,30 +451,24 @@ def write_dissect_fxn(dispatchable_obj, cfile):
       cfile.write('{indent}dissect_{name}(tvb, pinfo, pTree);\n'.format(name = abbr2name(dispatchable_obj.header.abbreviation), indent = _ws_text['indent']))
    if ws_has_section(dispatchable_obj, 'fields'):
       for f in dispatchable_obj.fields.values():
+         cfile.write('{indent}proto_tree_add_item(pTree, hf_{name}, tvb, {offset}, {length}, ENC_{endian}_ENDIAN);\n'.format(indent = _ws_text['indent'],
+                                                                                                                             name   = abbr2name(f.description.abbreviation),
+                                                                                                                             endian = "BIG" if f.endian == Constants.endian['big'] else "LITTLE",
+                                                                                                                             length = ws_chunks2bytes(f.position.chunksize, f.position.chunklength),
+                                                                                                                             offset = f.position.index
+                                                                                                                            ))
          if f.ftype in ('weighted', 'unsigned weighted'):
             sz = ws_field_size(f)
-            cfile.write('{indent}{value_expr}\n'.format(indent     = _ws_text['indent'],
-                                                        value_expr = ws_field_value(f)))
-            if   sz == 2:
-               cfile.write('{indent}value = ntohs(value);\n'.format(indent = _ws_text['indent']))
-            elif sz == 4:
-               cfile.write('{indent}value = ntohl(value);\n'.format(indent = _ws_text['indent']))
-            cfile.write('{indent}proto_tree_add_{unsigned}int_format_value(pTree, hf_{name}, tvb, {byteoffset}, {bytelength}, value, "(%d) %f", value, ((float)(value * {scale})) + ((float){voffset}));\n'.format(indent     = _ws_text['indent'],
-                                                                                                                                                                                                                       name       = abbr2name(f.description.abbreviation),
-                                                                                                                                                                                                                       endian     = "BIG" if f.endian == Constants.endian['big'] else "LITTLE",
-                                                                                                                                                                                                                       bytelength = ws_chunks2bytes(f.position.chunksize, f.position.chunklength),
-                                                                                                                                                                                                                       byteoffset = ws_chunks2bytes(f.position.chunksize, f.position.index),
-                                                                                                                                                                                                                       scale      = '{:.18F}'.format(f.weight.lsb).rstrip('0'),
-                                                                                                                                                                                                                       voffset    = f.weight.offset,
-                                                                                                                                                                                                                       unsigned   = 'u' if 'unsigned' in f.ftype else ''
-                                                                                                                                                                                                                      ))
-         else:
-            cfile.write('{indent}proto_tree_add_item(pTree, hf_{name}, tvb, {offset}, {length}, ENC_{endian}_ENDIAN);\n'.format(indent = _ws_text['indent'],
-                                                                                                                                name   = abbr2name(f.description.abbreviation),
-                                                                                                                                endian = "BIG" if f.endian == Constants.endian['big'] else "LITTLE",
-                                                                                                                                length = ws_chunks2bytes(f.position.chunksize, f.position.chunklength),
-                                                                                                                                offset = f.position.index
-                                                                                                                               ))
+            cfile.write('{indent}{value_expr};\n'.format(indent     = _ws_text['indent'],
+                                                         value_expr = ws_field_value(f, return_field='dblValue')
+                                                        ))
+            cfile.write('{indent}psubI = proto_tree_add_double_format_value(pTree, hf_{name}, tvb, {byteoffset}, {bytelength}, dblValue, "%f", dblValue);\n'.format(indent     = _ws_text['indent'],
+                                                                                                                                                                     name       = abbr2name('.'.join([f.description.abbreviation, 'scaled'])),
+                                                                                                                                                                     endian     = "BIG" if f.endian == Constants.endian['big'] else "LITTLE",
+                                                                                                                                                                     bytelength = ws_chunks2bytes(f.position.chunksize, f.position.chunklength),
+                                                                                                                                                                     byteoffset = ws_chunks2bytes(f.position.chunksize, f.position.index)
+                                                                                                                                                                    ))
+            cfile.write('{indent}PROTO_ITEM_SET_GENERATED(psubI);'.format(indent = _ws_text['indent']))
    if any(c.getTag() == Expose.tag() for c in dispatchable_obj.children):
       cfile.write('{indent}value = tvb_length(tvb);\n'.format(indent = _ws_text['indent']))
       if ws_has_section(dispatchable_obj, 'header'):
@@ -453,8 +483,8 @@ def write_dissect_fxn(dispatchable_obj, cfile):
                                                                                  name   = table.field
                                                                                 ))
          tfield = dispatchable_obj.getField(table.field)
-         cfile.write('{indent}{value_expr}\n'.format(indent     = _ws_text['indent'],
-                                                     value_expr = ws_field_value(tfield)))
+         cfile.write('{indent}{value_expr};\n'.format(indent     = _ws_text['indent'],
+                                                      value_expr = ws_field_value(tfield)))
          cfile.write('{indent}if(pTable)\n{indent}{{\n{indent}{indent}dissector_try_uint(pTable, value, tvbr, pinfo, tree);\n{indent}}}\n'.format(indent = _ws_text['indent']))
    if ws_has_section(dispatchable_obj, 'trailer'):
       cfile.write('{indent}dissect_{name}(tvb, pinfo, pTree);\n'.format(indent = _ws_text['indent'],
@@ -467,16 +497,25 @@ def write_register_fxn(dispatchable_obj, cfile):
    if dispatchable_obj.hasFields():
       cfile.write('{indent}static hf_register_info hf[] = {{'.format(**{'indent':_ws_text['indent']}))
       header_fields = ''
-      if ws_has_section(dispatchable_obj, 'header'):
-         header_fields = ',\n'.join([header_fields, ws_header_field(dispatchable_obj.header)])
-         header_fields = ',\n'.join([header_fields, ',\n'.join(ws_header_field(f) for f in dispatchable_obj.header.fields.values())])
-      if ws_has_section(dispatchable_obj, 'fields'):
-         header_fields = ',\n'.join([header_fields, ',\n'.join(ws_header_field(f) for f in dispatchable_obj.fields.values())])
-      if ws_has_section(dispatchable_obj, 'trailer'):
-         header_fields = ',\n'.join([header_fields, ws_header_field(dispatchable_obj.trailer)])
-         header_fields = ',\n'.join([header_fields, ',\n'.join(ws_header_field(f) for f in dispatchable_obj.trailer.fields.values())])
-      if isinstance(dispatchable_obj, Message):
-         header_fields = ',\n'.join([header_fields, ws_header_field(dispatchable_obj)])
+      for section in [dispatchable_obj.header  if ws_has_section(dispatchable_obj, 'header') else None,
+                      dispatchable_obj         if ws_has_section(dispatchable_obj, 'fields') else None,
+                      dispatchable_obj.trailer if ws_has_section(dispatchable_obj, 'trailer') else None]:
+         if section is not None:
+            header_fields = ',\n'.join([header_fields, ws_header_field(section)])
+            for field in section.fields.values():
+               header_fields = ',\n'.join([header_fields, ws_header_field(field)])
+               if 'weighted' in field.ftype:
+                  header_fields = ',\n'.join([header_fields, ws_header_field(field, '.scaled', ' (scaled)', _ws_ftypes['double'])])
+      #if ws_has_section(dispatchable_obj, 'header'):
+      #   header_fields = ',\n'.join([header_fields, ws_header_field(dispatchable_obj.header)])
+      #   header_fields = ',\n'.join([header_fields, ',\n'.join(ws_header_field(f) for f in dispatchable_obj.header.fields.values())])
+      #if ws_has_section(dispatchable_obj, 'fields'):
+      #   header_fields = ',\n'.join([header_fields, ',\n'.join(ws_header_field(f) for f in dispatchable_obj.fields.values())])
+      #if ws_has_section(dispatchable_obj, 'trailer'):
+      #   header_fields = ',\n'.join([header_fields, ws_header_field(dispatchable_obj.trailer)])
+      #   header_fields = ',\n'.join([header_fields, ',\n'.join(ws_header_field(f) for f in dispatchable_obj.trailer.fields.values())])
+      #if isinstance(dispatchable_obj, Message):
+      #   header_fields = ',\n'.join([header_fields, ws_header_field(dispatchable_obj)])
       cfile.write(header_fields.lstrip(',').replace('\n,\n','\n'))
       cfile.write('\n{indent}}};\n'.format(**{'indent':_ws_text['indent']}))
    cfile.write('{indent}static gint *ett[] = {{\n'.format(**{'indent':_ws_text['indent']}))
@@ -905,6 +944,8 @@ def dispatch(dispatchable_obj):
             cfile.write('/* Header Fields */\n')
             for field in namespace['fields'].values():
                cfile.write('static int hf_{hf} = -1;\n'.format(hf=abbr2name(field.abbreviation)))
+               if 'weighted' in field.ftype:
+                  cfile.write('static int hf_{hf} = -1;\n'.format(hf=abbr2name('.'.join([field.abbreviation,'scaled']))))
             for msg in namespace['messages'].values():
                cfile.write('static int hf_{hf} = -1;\n'.format(hf=abbr2name(msg.abbreviation)))
             for hdr in namespace['headers'].values():
