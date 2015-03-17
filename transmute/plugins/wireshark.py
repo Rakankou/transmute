@@ -575,6 +575,8 @@ def write_handoff_fxn(dispatchable_obj, cfile, local_handles):
 def write_cmake_file(folder, dispatchable_obj):
    with open(os.path.join(folder, 'CMakeLists.txt'), 'w') as cmakefile:
       cmakefile.write('\n'.join(['# This file automatically generated using Transmute',
+                                 'include(WiresharkPlugin)',
+                                 'set_module_info({name} {major} {minor} {micro} {extra})'.format(name=dispatchable_obj.abbreviation, **dispatchable_obj.version.data), 
                                  'set(DISSECTOR_SRC',
                                  '\tpacket-{}.c'.format(dispatchable_obj.abbreviation),
                                  ')',
