@@ -468,7 +468,7 @@ def write_dissect_fxn(dispatchable_obj, cfile):
                                                                                                                                                                      bytelength = ws_chunks2bytes(f.position.chunksize, f.position.chunklength),
                                                                                                                                                                      byteoffset = ws_chunks2bytes(f.position.chunksize, f.position.index)
                                                                                                                                                                     ))
-            cfile.write('{indent}PROTO_ITEM_SET_GENERATED(psubI);'.format(indent = _ws_text['indent']))
+            cfile.write('{indent}PROTO_ITEM_SET_GENERATED(psubI);\n'.format(indent = _ws_text['indent']))
    if any(c.getTag() == Expose.tag() for c in dispatchable_obj.children):
       cfile.write('{indent}value = tvb_length(tvb);\n'.format(indent = _ws_text['indent']))
       if ws_has_section(dispatchable_obj, 'header'):
